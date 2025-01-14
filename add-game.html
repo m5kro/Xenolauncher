@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add Game</title>
+  <link rel="stylesheet" href="add-game.css">
+</head>
+<body>
+  <h2>Add Game</h2>
+
+  <div class="form-item">
+    <label for="gameTitle">Game Title:</label>
+    <input type="text" id="gameTitle" placeholder="Enter game title">
+  </div>
+
+  <div class="form-item">
+    <label for="exePath">Executable:</label>
+    <div class="selector">
+      <input type="text" id="exePath" placeholder="Select game executable">
+      <button id="selectExe" class="secondary-button">Select Executable</button>
+    </div>
+  </div>
+
+  <div class="form-item">
+    <label for="iconPath">Icon (optional):</label>
+    <div class="selector">
+      <input type="text" id="iconPath" placeholder="Select game icon">
+      <button id="selectIcon" class="secondary-button">Select Icon</button>
+    </div>
+  </div>
+
+  <div class="form-item">
+    <label for="gameEngine">Game Engine:</label>
+    <select id="gameEngine">
+      <option value="">Select a game engine</option>
+      <option value="RPG MV/MZ (NWjs)">RPG MV/MZ (NWjs)</option>
+      <option value="RPG VX Ace, VX, XP (MKXP-Z)">RPG VX Ace, VX, XP (MKXP-Z)</option>
+      <option value="RPG 2003, 2000 (EasyRPG)">RPG 2003, 2000 (EasyRPG)</option>
+      <option value="Godot">Godot</option>
+      <option value="Ren'Py (Python)">Ren'Py (Python)</option>
+      <option value="Flash (Ruffle)">Flash (Ruffle)</option>
+      <option value="Java">Java</option>
+      <option value="TyranoBuilder">TyranoBuilder</option>
+      <option value="HTML">HTML</option>
+      <option value="Android (Android Studio)">Android (Android Studio)</option>
+      <option value="Wine">Wine</option>
+      <option value="MacOS">MacOS</option>
+    </select>
+  </div>
+  
+  <div id="options" style="display: none;">
+    <h3>Options</h3>
+    <div id="nwjsOptions" style="display: none;">
+      <div class="form-item">
+      <label for="nwjsVersion">NWjs Version:</label>
+      <select id="nwjsVersion">
+        <option value="default">Default</option>
+      </select>
+      </div>
+    </div>
+    <div id="macosOptions" style="display: none;">
+      <div class="form-toggle">
+        <label for="runWithRosetta">Run with Rosetta</label>
+        <input type="checkbox" id="runWithRosetta">
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button id="cancelButton" class="secondary-button">Cancel</button>
+    <button id="saveGame" class="primary-button">Save</button>
+  </div>
+
+  <script>
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
+    const gamesPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'games.json');
+
+    const { openFile, openFolder } = require("macos-open-file-dialog");
+
+    const loadSettings = () => {
+      if (fs.existsSync(settingsPath)) {
+        const data = fs.readFileSync(settingsPath, 'utf-8');
+        try {
+          return JSON.parse(data);
+        } catch (error) {
+          console.error('Error parsing global-settings.json:', error);
+          return { darkTheme: false, defaultNWjsVersion: 'default', useRosetta: false }; // Default values on error
+        }
+      }
+      return { darkTheme: false, defaultNWjsVersion: 'default', useRosetta: false }; // Default values if file doesn't exist
+    };
+
+    const loadGames = () => {
+      if (fs.existsSync(gamesPath)) {
+        try {
+          return JSON.parse(fs.readFileSync(gamesPath, 'utf-8'));
+        } catch (error) {
+          console.error('Error parsing games.json:', error);
+          return {};
+        }
+      }
+      return {}; // Return an empty object if the file doesn't exist
+    };
+
+    const saveGame = (gameData) => {
+      const games = loadGames();
+      const nextGameID = Object.keys(games).reduce((max, key) => Math.max(max, parseInt(key)), 0) + 1;
+      games[nextGameID] = gameData;
+      try {
+        fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2));
+      } catch (error) {
+        console.error('Error saving game:', error);
+        alert('Failed to save game! ' + error.message);
+      }
+    };
+
+    const applyTheme = (isDark) => {
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    };
+
+    const populateNWjsVersions = () => {
+      const nwjsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs');
+      const versionSelect = document.getElementById('nwjsVersion');
+      if (fs.existsSync(nwjsDir)) {
+        const versions = fs.readdirSync(nwjsDir).filter(file => fs.statSync(path.join(nwjsDir, file)).isDirectory());
+        versions.forEach(version => {
+          const option = document.createElement('option');
+          option.value = version;
+          option.textContent = version;
+          versionSelect.appendChild(option);
+        });
+      }
+    };
+
+    // Load settings and apply theme
+    const settings = loadSettings();
+    applyTheme(settings.darkTheme);
+
+    // Set default values for NWjs and Rosetta options
+    document.getElementById('nwjsVersion').value = settings.defaultNWjsVersion;
+    document.getElementById('runWithRosetta').checked = settings.useRosetta;
+
+    // Event handlers for executable selection
+    document.getElementById('selectExe').addEventListener('click', async () => {
+      const exePath = await openFile("Select a game executable", ["exe", "swf", "jar", "html", "apk", "py", "app"]);
+      document.getElementById('exePath').value = exePath;
+    });
+
+    // Event handlers for icon selection
+    document.getElementById('selectIcon').addEventListener('click', async () => {
+      const iconPath = await openFile("Select a game icon", ["png", "jpg", "jpeg", "ico", "gif"]);
+      document.getElementById('iconPath').value = iconPath;
+    });
+
+    // Event handler for game engine selection
+    document.getElementById('gameEngine').addEventListener('change', (event) => {
+      const selectedEngine = event.target.value;
+      const optionsDiv = document.getElementById('options');
+      const nwjsOptionsDiv = document.getElementById('nwjsOptions');
+      const macosOptionsDiv = document.getElementById('macosOptions');
+
+      if (selectedEngine) {
+        optionsDiv.style.display = 'block';
+      } else {
+        optionsDiv.style.display = 'none';
+      }
+
+      if (selectedEngine === 'RPG MV/MZ (NWjs)') {
+        nwjsOptionsDiv.style.display = 'block';
+        macosOptionsDiv.style.display = 'none';
+        populateNWjsVersions();
+        document.getElementById('nwjsVersion').value = settings.defaultNWjsVersion;
+      } else if (selectedEngine === 'MacOS') {
+        nwjsOptionsDiv.style.display = 'none';
+        macosOptionsDiv.style.display = 'block';
+        document.getElementById('runWithRosetta').checked = settings.useRosetta;
+      } else {
+        nwjsOptionsDiv.style.display = 'none';
+        macosOptionsDiv.style.display = 'none';
+      }
+    });
+
+    // Event handlers for save and cancel buttons
+    document.getElementById('saveGame').addEventListener('click', () => {
+      const gameTitle = document.getElementById('gameTitle').value.trim();
+      const exePath = document.getElementById('exePath').value.trim();
+      const iconPath = document.getElementById('iconPath').value.trim();
+      const gameEngine = document.getElementById('gameEngine').value;
+      const nwjsVersion = document.getElementById('nwjsVersion').value;
+      const runWithRosetta = document.getElementById('runWithRosetta').checked;
+
+      if (!gameTitle || !exePath || !gameEngine) {
+        alert('Please fill in all fields.');
+        return;
+      }
+
+      const gameData = { gameTitle, gamePath: exePath, iconPath, gameEngine, engineSettings: {} };
+
+      if (gameEngine === 'RPG MV/MZ (NWjs)') {
+        gameData.engineSettings = { nwjsVersion };
+      } else if (gameEngine === 'MacOS') {
+        gameData.engineSettings = { runWithRosetta };
+      }
+
+      saveGame(gameData);
+      nw.Window.get().close();
+    });
+
+    document.getElementById('cancelButton').addEventListener('click', () => {
+      nw.Window.get().close();
+    });
+  </script>
+</body>
+</html>

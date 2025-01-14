@@ -1,0 +1,18 @@
+{
+    "name": "xenolauncher",
+    "version": "1.0.0",
+    "main": "index.html",
+    "window": {
+        "title": "Xenolauncher",
+        "icon": "icon.png",
+        "toolbar": false,
+        "resizable": true,
+        "width": 600,
+        "height": 400
+    },
+    "chromium-args": "--enable-gpu-rasterization --enable-gpu-compositing --enable-zero-copy --enable-accelerated-2d-canvas --ignore-gpu-blacklist --disable-software-rasterizer",
+    "dependencies": {
+        "macos-open-file-dialog": "^1.0.1",
+        "unzipper": "^0.12.3"
+    }
+}

@@ -1,0 +1,198 @@
+body, html {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Main content styles */
+.content {
+  flex: 1;
+  padding: 20px;
+  background-color: var(--background-color, #f9f9f9);
+  color: var(--text-color, #333);
+}
+
+.header {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+/* Games grid styles */
+.games-grid {
+  /* Use auto-fill with a minimum width of 100px to adapt to window size */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 100px);
+  gap: 20px;
+  padding: 20px;
+  justify-items: start;
+}
+
+/* 
+   Wrap each box + its title in a container so the title 
+   can naturally appear beneath the box 
+*/
+.game-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding-bottom: 30px;
+}
+
+/* Each game box is 100px wide by 150px high */
+.game-box {
+  width: 100px;
+  height: 150px;
+  background-color: var(--button-bg-color, #61dafb);
+  color: var(--button-text-color, #fff);
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: transform 0.3s, background-color 0.3s;
+  /* Center content for icon/image in the middle */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-box:hover {
+  transform: scale(1.05);
+  background-color: var(--button-hover-bg-color, #21a1f1);
+}
+
+.game-box:active {
+  transform: scale(0.98);
+}
+
+.game-title {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: normal;
+  text-align: center;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.game-icon {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.title-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  width: 100%;
+  z-index: 0;
+}
+
+.options-button {
+  margin-top: 5px;
+  background: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--options-button-color, #333);
+}
+
+.options-menu {
+  display: none;
+  top: 80px;
+  right: 0;
+  position: absolute;
+  background-color: var(--menu-bg-color, #282c34);
+  color: var(--menu-text-color, #fff);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1;
+  border-radius: 8px;
+}
+
+.options-menu.show {
+  display: block;
+}
+
+.options-menu button {
+  background: none;
+  border: none;
+  padding: 10px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: var(--menu-button-text-color, #fff);
+}
+
+.options-menu button:hover {
+  background-color: var(--menu-button-hover-bg-color, #3a3f47);
+  border-radius: 8px;
+}
+
+/* Footer styles */
+.footer {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  background-color: var(--footer-bg-color, #282c34);
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.footer button {
+  background-color: var(--button-bg-color, #61dafb);
+  color: var(--button-text-color, #fff);
+  border: none;
+  padding: 10px 20px;
+  margin: 0 10px;
+  font-size: 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.footer button:hover {
+  transform: scale(1.05);
+  background-color: var(--button-hover-bg-color, #21a1f1);
+}
+
+.footer button:active {
+  transform: scale(0.98);
+}
+
+/* Theme variables */
+[data-theme="light"] {
+  --background-color: #f9f9f9;
+  --text-color: #333;
+  --footer-bg-color: #282c34;
+  --button-bg-color: #61dafb;
+  --button-text-color: #fff;
+  --button-hover-bg-color: #21a1f1;
+  --options-button-color: #333;
+}
+
+[data-theme="dark"] {
+  --background-color: #181a1b;
+  --text-color: #eaeaea;
+  --footer-bg-color: #1f2225;
+  --button-bg-color: #bb86fc;
+  --button-text-color: #000;
+  --button-hover-bg-color: #9a67ea;
+  --options-button-color: #eaeaea;
+}
+
+body {
+  overflow-y: auto;
+  padding-bottom: 50px; /* css is weird */
+}

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Install NWjs Version</title>
+  <link rel="stylesheet" href="install-nwjs.css">
+</head>
+<body>
+  <h2>Install NWjs Version</h2>
+
+  <div class="setting-item">
+    <label for="nwjsVersionSelect">Select NWjs Version</label>
+    <select id="nwjsVersionSelect"></select>
+  </div>
+
+  <div class="setting-item">
+    <progress id="downloadProgress" value="0" max="100" style="width: 100%;"></progress>
+    <span id="downloadStatus">0% (0 MB)</span>
+  </div>
+
+  <div class="footer">
+    <button id="cancelButton" class="secondary-button">Cancel</button>
+    <button id="installButton" class="primary-button">Install</button>
+  </div>
+
+  <script>
+    const os = require('os');
+    const https = require('https');
+    const fs = require('fs');
+    const path = require('path');
+    const unzipper = require('unzipper');
+    const settingsPath = './global-settings.json';
+    let versions = {};
+    let downloadRequest = null;
+    let isCancelled = false;
+
+    const getMacArch = () => {
+      const arch = os.arch();
+      return arch === 'arm64' ? 'arm64' : 'x64';
+    };
+
+    const fetchNWjsVersions = () => {
+      return new Promise((resolve, reject) => {
+        https.get('https://nwjs.io/versions', (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            resolve(JSON.parse(data));
+          });
+        }).on('error', (err) => {
+          reject(err);
+        });
+      });
+    };
+
+    const getInstalledVersions = () => {
+      const nwjsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs');
+      if (!fs.existsSync(nwjsDir)) {
+        return [];
+      }
+      return fs.readdirSync(nwjsDir).filter(file => fs.statSync(path.join(nwjsDir, file)).isDirectory());
+    };
+
+    const populateVersionSelect = async () => {
+      try {
+        const data = await fetchNWjsVersions();
+        const installedVersions = getInstalledVersions();
+        versions = data.versions.reduce((acc, v) => {
+          if (!installedVersions.includes(v.version)) {
+            acc[v.version] = v;
+          }
+          return acc;
+        }, {});
+        const versionSelect = document.getElementById('nwjsVersionSelect');
+        versionSelect.innerHTML = ''; // Clear existing options
+        Object.keys(versions).forEach(version => {
+          const option = document.createElement('option');
+          option.value = version;
+          option.textContent = version;
+          versionSelect.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to fetch NWjs versions:', error);
+      }
+    };
+
+    const loadSettings = () => {
+      if (fs.existsSync(settingsPath)) {
+        const data = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(data);
+        return {
+          darkTheme: settings.darkTheme ?? window.matchMedia('(prefers-color-scheme: dark)').matches,
+        };
+      }
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return { darkTheme: prefersDark };
+    };
+
+    const applyTheme = (isDark) => {
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    };
+
+    const downloadAndInstall = (version, arch, useRosetta) => {
+      const url = `https://dl.nwjs.io/${version}/nwjs-sdk-${version}-osx-${arch}.zip`;
+      const tmpFile = '/tmp/nwjs.zip';
+      const destDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', version);
+
+      const file = fs.createWriteStream(tmpFile);
+      downloadRequest = https.get(url, (response) => {
+        const totalSize = parseInt(response.headers['content-length'], 10);
+        const mbTotal = (totalSize / (1024 * 1024)).toFixed(2);
+        let downloadedSize = 0;
+
+        response.pipe(file);
+
+        response.on('data', (chunk) => {
+          if (isCancelled) {
+            downloadRequest.abort();
+            return;
+          }
+          downloadedSize += chunk.length;
+          const percentage = ((downloadedSize / totalSize) * 100).toFixed(2);
+          const mbDownloaded = (downloadedSize / (1024 * 1024)).toFixed(2);
+          document.getElementById('downloadProgress').value = percentage;
+          document.getElementById('downloadStatus').textContent = `${percentage}% (${mbDownloaded} MB / ${mbTotal} MB)`;
+        });
+
+        file.on('finish', () => {
+          if (isCancelled) {
+            fs.unlinkSync(tmpFile);
+            return;
+          }
+          document.getElementById('downloadStatus').textContent += ' - Unzipping';
+          file.close(() => {
+            fs.createReadStream(tmpFile)
+              .pipe(unzipper.Extract({ path: destDir }))
+              .on('close', () => {
+                if (useRosetta) {
+                  fs.writeFileSync(path.join(destDir, 'rosetta'), '');
+                }
+                fs.unlinkSync(tmpFile);
+                document.getElementById('downloadStatus').textContent = '';
+                alert('NWjs version installed successfully!');
+                populateVersionSelect(); // Update the version list
+              });
+          });
+        });
+      }).on('error', (err) => {
+        fs.unlinkSync(tmpFile);
+        console.error('Download failed:', err);
+        alert('Failed to download NWjs version!');
+      });
+    };
+
+    document.getElementById('installButton').addEventListener('click', () => {
+      const versionSelect = document.getElementById('nwjsVersionSelect');
+      const selectedVersion = versionSelect.value;
+      const arch = getMacArch();
+      const versionInfo = versions[selectedVersion];
+      let useRosetta = false;
+
+      if (arch === 'arm64' && !versionInfo.files.includes('osx-arm64')) {
+        useRosetta = confirm('The selected version does not support arm64. Do you want to use Rosetta?');
+        if (!useRosetta) {
+          return;
+        }
+        arch = 'x64';
+      }
+
+      downloadAndInstall(selectedVersion, arch, useRosetta);
+    });
+
+    document.getElementById('cancelButton').addEventListener('click', () => {
+      isCancelled = true;
+      if (downloadRequest) {
+        downloadRequest.abort();
+      }
+      const tmpFile = '/tmp/nwjs.zip';
+      if (fs.existsSync(tmpFile)) {
+        fs.unlinkSync(tmpFile);
+      }
+      const versionSelect = document.getElementById('nwjsVersionSelect');
+      const selectedVersion = versionSelect.value;
+      const destDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', selectedVersion);
+      if (fs.existsSync(destDir)) {
+        fs.rmdirSync(destDir, { recursive: true });
+      }
+      nw.Window.get().close();
+    });
+
+    const settings = loadSettings();
+    applyTheme(settings.darkTheme);
+    populateVersionSelect();
+  </script>
+</body>
+</html>

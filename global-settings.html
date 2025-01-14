@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Settings</title>
+  <link rel="stylesheet" href="global-settings.css">
+</head>
+<body>
+  <h2>Global Settings</h2>
+
+  <div class="setting-toggle">
+    <label for="darkThemeToggle">Enable Dark Theme</label>
+    <input type="checkbox" id="darkThemeToggle">
+  </div>
+
+  <div class="setting-toggle">
+    <label for="deletionConfirmationToggle">Enable Deletion Confirmation</label>
+    <input type="checkbox" id="deletionConfirmationToggle">
+  </div>
+
+  <h3>NWjs Settings</h3>
+
+  <div class="setting-item">
+    <button id="installNWjsButton" class="secondary-button">Install NWjs Version</button>
+  </div>
+
+  <div class="setting-item">
+    <label for="defaultNWjsVersion">Default NWjs Version:</label>
+    <select id="defaultNWjsVersion">
+      <option value="default">Default</option>
+    </select>
+  </div>
+
+  <h3>MacOS Settings</h3>
+
+  <div class="setting-toggle">
+    <label for="useRosettaToggle">Run with Rosetta</label>
+    <input type="checkbox" id="useRosettaToggle">
+  </div>
+
+  <div class="footer">
+    <button id="cancelButton" class="secondary-button">Cancel</button>
+    <button id="saveSettings" class="primary-button">Save</button>
+  </div>
+
+  <script>
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
+
+    // Open a subwindow (for adding nwjs versions)
+    const openSubwindow = (url) => {
+      document.body.style.pointerEvents = 'none';
+
+      nw.Window.open(url, {
+        title: "Subwindow",
+        resizable: true,
+      }, (newWin) => {
+        newWin.on('closed', () => {
+          document.body.style.pointerEvents = 'auto';
+        });
+      });
+    };
+
+    const loadSettings = () => {
+      if (fs.existsSync(settingsPath)) {
+        const data = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(data);
+        return {
+          darkTheme: settings.darkTheme ?? window.matchMedia('(prefers-color-scheme: dark)').matches,
+          deletionConfirmation: settings.deletionConfirmation ?? true,
+          defaultNWjsVersion: settings.defaultNWjsVersion ?? 'default',
+          useRosetta: settings.useRosetta ?? false
+        };
+      }
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return { darkTheme: prefersDark, deletionConfirmation: true, defaultNWjsVersion: 'default', useRosetta: false };
+    };
+
+    const saveSettings = (settings) => {
+      try {
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        alert('Settings saved!');
+      } catch (error) {
+        console.error(error);
+        alert('Failed to save settings! ' + error.message);
+      }
+    };
+
+    const applyTheme = (isDark) => {
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    };
+
+    const populateNWjsVersions = () => {
+      const nwjsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs');
+      const versionSelect = document.getElementById('defaultNWjsVersion');
+      if (fs.existsSync(nwjsDir)) {
+        const versions = fs.readdirSync(nwjsDir).filter(file => fs.statSync(path.join(nwjsDir, file)).isDirectory());
+        versions.forEach(version => {
+          const option = document.createElement('option');
+          option.value = version;
+          option.textContent = version;
+          versionSelect.appendChild(option);
+        });
+      }
+    };
+
+    const settings = loadSettings();
+    document.getElementById('darkThemeToggle').checked = settings.darkTheme;
+    document.getElementById('deletionConfirmationToggle').checked = settings.deletionConfirmation;
+    document.getElementById('defaultNWjsVersion').value = settings.defaultNWjsVersion;
+    document.getElementById('useRosettaToggle').checked = settings.useRosetta;
+    applyTheme(settings.darkTheme);
+    populateNWjsVersions();
+
+    document.getElementById('installNWjsButton').addEventListener('click', () => {
+      openSubwindow('install-nwjs.html');
+    });
+
+    document.getElementById('saveSettings').addEventListener('click', () => {
+      const updatedSettings = {
+        darkTheme: document.getElementById('darkThemeToggle').checked,
+        deletionConfirmation: document.getElementById('deletionConfirmationToggle').checked,
+        defaultNWjsVersion: document.getElementById('defaultNWjsVersion').value,
+        useRosetta: document.getElementById('useRosettaToggle').checked
+      };
+      saveSettings(updatedSettings);
+      applyTheme(updatedSettings.darkTheme);
+      window.setMainWindow(updatedSettings)
+      nw.Window.get().close();
+    });
+
+    document.getElementById('cancelButton').addEventListener('click', () => {
+      nw.Window.get().close();
+    });
+  </script>
+</body>
+</html>
