@@ -28,7 +28,6 @@
   <div class="setting-item">
     <label for="defaultNWjsVersion">Default NWjs Version:</label>
     <select id="defaultNWjsVersion">
-      <option value="default">Default</option>
     </select>
   </div>
 
@@ -48,6 +47,7 @@
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
+    const currentVersion = "0.2.0";
     const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
 
     // Open a subwindow (for adding nwjs versions)
@@ -96,6 +96,7 @@
     const populateNWjsVersions = () => {
       const nwjsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs');
       const versionSelect = document.getElementById('defaultNWjsVersion');
+      versionSelect.innerHTML = ''; // Clear existing options
       if (fs.existsSync(nwjsDir)) {
         const versions = fs.readdirSync(nwjsDir).filter(file => fs.statSync(path.join(nwjsDir, file)).isDirectory());
         versions.forEach(version => {
@@ -107,13 +108,25 @@
       }
     };
 
+    const monitorNWjsDirectory = () => {
+      const nwjsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs');
+      if (fs.existsSync(nwjsDir)) {
+        fs.watch(nwjsDir, (eventType, filename) => {
+          if (eventType === 'rename' || eventType === 'change') {
+            populateNWjsVersions();
+          }
+        });
+      }
+    };
+
+    populateNWjsVersions();
+    monitorNWjsDirectory();
     const settings = loadSettings();
     document.getElementById('darkThemeToggle').checked = settings.darkTheme;
     document.getElementById('deletionConfirmationToggle').checked = settings.deletionConfirmation;
     document.getElementById('defaultNWjsVersion').value = settings.defaultNWjsVersion;
     document.getElementById('useRosettaToggle').checked = settings.useRosetta;
     applyTheme(settings.darkTheme);
-    populateNWjsVersions();
 
     document.getElementById('installNWjsButton').addEventListener('click', () => {
       openSubwindow('install-nwjs.html');
@@ -124,7 +137,8 @@
         darkTheme: document.getElementById('darkThemeToggle').checked,
         deletionConfirmation: document.getElementById('deletionConfirmationToggle').checked,
         defaultNWjsVersion: document.getElementById('defaultNWjsVersion').value,
-        useRosetta: document.getElementById('useRosettaToggle').checked
+        useRosetta: document.getElementById('useRosettaToggle').checked,
+        currentVersion: currentVersion
       };
       saveSettings(updatedSettings);
       applyTheme(updatedSettings.darkTheme);

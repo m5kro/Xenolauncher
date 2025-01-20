@@ -1,21 +1,19 @@
 // Launches the game using NW.js
-// Default is the nwjs version that comes with the launcher
-// Custom is the nwjs version that the user has installed
-// Doesn't work right now, will be enabled in the next update
+// Unfortunately, the NW.js instance being used by Xenolauncher doesn't work due to session conflicts :(
+// Requires at least one NW.js version to be installed + permission fixes that are applied during the installation process
 const nwjsLaunch = (gamePath, gameArgs) => {
     const path = require('path');
     const { exec } = require('child_process');
-    let nwjsPath = '';
-    if (gameArgs.nwjsVersion === 'default') {
-        nwjsPath = 'nwjs';
+    if (!gameArgs.nwjsVersion) {
+        alert('Please select a NW.js version to launch the game with, or if you haven\'t, please install one');
     } else {
-        nwjsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', version);
+        nwjsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', gameArgs.nwjsVersion, 'nwjs.app', 'Contents', 'MacOS', 'nwjs');
+        exec(`"${nwjsPath}" "${path.dirname(gamePath)}"`, (err, stdout, stderr) => {
+            if (err) {
+            console.error(err);
+            return;
+            }
+            console.log(stdout);
+        });
     }
-    exec(`${nwjsPath} ${gamePath} ${gameArgs}`, (err, stdout, stderr) => {
-        if (err) {
-        console.error(err);
-        return;
-        }
-        console.log(stdout);
-    });
-    }
+}

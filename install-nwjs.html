@@ -27,10 +27,11 @@
   <script>
     const os = require('os');
     const https = require('https');
-    const fs = require('fs');
+    const fs = require('fs-extra');
     const path = require('path');
     const unzipper = require('unzipper');
     const settingsPath = './global-settings.json';
+    const { exec } = require('child_process');
     let versions = {};
     let downloadRequest = null;
     let isCancelled = false;
@@ -106,7 +107,8 @@
     const downloadAndInstall = (version, arch, useRosetta) => {
       const url = `https://dl.nwjs.io/${version}/nwjs-sdk-${version}-osx-${arch}.zip`;
       const tmpFile = '/tmp/nwjs.zip';
-      const destDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', version);
+      const tempDir = '/tmp';
+      const destDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', version, 'nwjs.app');
 
       const file = fs.createWriteStream(tmpFile);
       downloadRequest = https.get(url, (response) => {
@@ -136,12 +138,29 @@
           document.getElementById('downloadStatus').textContent += ' - Unzipping';
           file.close(() => {
             fs.createReadStream(tmpFile)
-              .pipe(unzipper.Extract({ path: destDir }))
+              .pipe(unzipper.Extract({ path: tempDir }))
               .on('close', () => {
+                fs.moveSync(path.join(tempDir, `nwjs-sdk-${version}-osx-${arch}`, 'nwjs.app'), destDir);
                 if (useRosetta) {
                   fs.writeFileSync(path.join(destDir, 'rosetta'), '');
                 }
+                // Apple why do you have to make things so complicated :(
+                exec(`xattr -cr "${destDir}"`, (err) => {
+                  if (err) {
+                    console.error('Failed to remove quarantine:', err);
+                  }
+                });
+                exec(`chmod -R +x "${destDir}"`, (err) => {
+                  if (err) {
+                    console.error('Failed to give executable permissions:', err);
+                  }
+                });
                 fs.unlinkSync(tmpFile);
+                fs.readdirSync(tempDir).forEach(file => {
+                  if (file.startsWith('nwjs')) {
+                    fs.rmdirSync(path.join(tempDir, file), { recursive: true });
+                  }
+                });
                 document.getElementById('downloadStatus').textContent = '';
                 alert('NWjs version installed successfully!');
                 populateVersionSelect(); // Update the version list
@@ -184,9 +203,14 @@
       }
       const versionSelect = document.getElementById('nwjsVersionSelect');
       const selectedVersion = versionSelect.value;
+      const tempDir = '/tmp';
       const destDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs', selectedVersion);
-      if (fs.existsSync(destDir)) {
-        fs.rmdirSync(destDir, { recursive: true });
+      if (fs.existsSync(tempDir)) {
+        fs.readdirSync(tempDir).forEach(file => {
+          if (file.startsWith('nwjs')) {
+            fs.rmdirSync(path.join(tempDir, file), { recursive: true });
+          }
+        });
       }
       nw.Window.get().close();
     });

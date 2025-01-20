@@ -1,14 +1,16 @@
 # Xenolauncher
 An in progress all in one game launcher and compatability layer for macos. The goal is to load games natively if possible, only using wine as a last resort.
 
+[How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup
+
 # Supported Game Engines
 1. MacOS (.app)
+2. RPG MV/MZ (NWjs)
 
 # Planned Game Engines (No Particular Order)
 If you have other engines that can work please post it in an issue<br>
-1. RPG MV/MZ (NWjs) <-- In Progress
-2. RPG VX Ace, VX, XP (MKXP-Z)
-3. RPG 2003, 2000 (EasyRPG)
+1. RPG VX Ace, VX, XP (MKXP-Z) <-- In Progress
+2. RPG 2003, 2000 (EasyRPG)
 3. Godot
 4. Ren'Py (Python)
 5. Flash (Ruffle)
@@ -37,3 +39,4 @@ Some of these can still be used with wine<br>
 7. Categories/Tags
 8. Check for updates
 9. Combine CSS files
+10. Better error correction

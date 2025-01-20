@@ -20,12 +20,14 @@
   </div>
 
   <!--Launcher Functions-->
-  <script src = "nwjs-launcher.js"></script>
   <script src = "macos-launcher.js"></script>
+  <script src = "nwjs-launcher.js"></script>
+  <script src = "mkxpz-launcher.js"></script>
   <script>
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
+    const currentVersion = "0.2.0";
     const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
     const gamesPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'games.json');
 
@@ -35,7 +37,8 @@
         const settings = JSON.parse(data);
         return {
           darkTheme: settings.darkTheme ?? window.matchMedia('(prefers-color-scheme: dark)').matches,
-          deletionConfirmation: settings.deletionConfirmation ?? true
+          deletionConfirmation: settings.deletionConfirmation ?? true,
+          currentVersion: settings.currentVersion ?? "0.0.0"
         };
       }
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -48,6 +51,19 @@
         alert('Welcome to Xenolauncher! This is your first time running the app. You can add games and customize settings. In a moment, the global settings window will open.');
         openSubwindow('global-settings.html');
       }
+    }
+
+    const updateDetect = () => {
+      const settings = loadSettings();
+      if (settings.currentVersion !== currentVersion) {
+        alert('Xenolauncher has been updated to version ' + currentVersion + '! Check out the new features and improvements!');
+        openSubwindow('global-settings.html');
+      }
+      // Update the current version in the settings json, without overwriting other settings
+      const data = fs.readFileSync(settingsPath, 'utf-8');
+      const settingsData = JSON.parse(data);
+      settingsData.currentVersion = currentVersion;
+      fs.writeFileSync(settingsPath, JSON.stringify(settingsData, null, 2));
     }
 
     // Remove the game entry
@@ -198,8 +214,12 @@
           gameBox.addEventListener('click', () => {
             // Launch the game with the specified engine
             if (game.gameEngine === 'RPG MV/MZ (NWjs)') {
-              // Implement NWjs launch here later
               console.log(`Launch ${game.gameTitle} with NWjs`);
+              nwjsLaunch(game.gamePath, game.engineSettings);
+            } else if (game.gameEngine === 'RPG VX Ace, VX, XP (MKXP-Z)') {
+              // Development in progress
+              console.log(`Launch ${game.gameTitle} with mkxp-z`);
+              //mkxpzLaunch(game.gamePath, game.engineSettings);
             } else if (game.gameEngine === 'MacOS') {
               console.log(`Launch ${game.gameTitle} with MacOS`);
               macosLaunch(game.gamePath, game.engineSettings);
@@ -275,6 +295,8 @@
 
       const settings = loadSettings();
       applyTheme(settings.darkTheme);
+
+      updateDetect();
 
       // Add event listeners for the buttons
       document.getElementById('addGameButton').addEventListener('click', () => {
