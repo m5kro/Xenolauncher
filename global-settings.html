@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Global Settings</title>
   <link rel="stylesheet" href="global-settings.css">
 </head>
+
 <body>
   <h2>Global Settings</h2>
 
@@ -47,7 +49,7 @@
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
-    const currentVersion = "0.2.0";
+    const currentVersion = "0.3.0";
     const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
 
     // Open a subwindow (for adding nwjs versions)
@@ -151,4 +153,5 @@
     });
   </script>
 </body>
+
 </html>

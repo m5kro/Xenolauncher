@@ -6,18 +6,18 @@ An in progress all in one game launcher and compatability layer for macos. The g
 # Supported Game Engines
 1. MacOS (.app)
 2. RPG MV/MZ (NWjs)
+3. RPG VX Ace, VX, XP (MKXP-Z)
 
 # Planned Game Engines (No Particular Order)
 If you have other engines that can work please post it in an issue<br>
-1. RPG VX Ace, VX, XP (MKXP-Z) <-- In Progress
-2. RPG 2003, 2000 (EasyRPG)
-3. Godot
-4. Ren'Py (Python)
-5. Flash (Ruffle)
-6. Java
-7. TyranoBuilder
-8. HTML
-9. Android (Android Studio)
+1. RPG 2003, 2000 (EasyRPG)
+2. Godot
+3. Ren'Py (Python)
+4. Flash (Ruffle) <-- In Progress
+5. Java
+6. TyranoBuilder
+7. HTML
+8. Android (Android Studio)
 
 # Known Unsupported Game Engines
 Some of these can still be used with wine<br>
@@ -40,3 +40,4 @@ Some of these can still be used with wine<br>
 8. Check for updates
 9. Combine CSS files
 10. Better error correction
+11. Add mkxpz advanced options
