@@ -1,4 +1,5 @@
-![Xenolauncher Logo](https://raw.githubusercontent.com/m5kro/Xenolauncher/main/Xenolauncher.png)
+
+<img src="https://raw.githubusercontent.com/m5kro/Xenolauncher/main/Xenolauncher.png" width="258"/></img>
 # Xenolauncher
 An in progress all in one game launcher and compatability layer for macos. The goal is to load games natively if possible, only using wine as a last resort.
 
