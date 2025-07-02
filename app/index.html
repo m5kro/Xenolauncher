@@ -23,10 +23,6 @@
     <button id="globalSettingsButton">Global Settings</button>
   </div>
 
-  <!--Launcher Functions-->
-  <script src="macos-launcher.js"></script>
-  <script src="nwjs-launcher.js"></script>
-  <script src="mkxpz-launcher.js"></script>
   <script>
     const fs = require('fs');
     const path = require('path');
@@ -131,6 +127,58 @@
       return {};
     };
 
+    /**
+     * Finds a subfolder in ~/Library/Application Support/Xenolauncher/modules/
+     * whose manifest.json “name” matches gameEngine, requires its launcher.js,
+     * and calls launch(gamePath, gameArgs).
+     */
+    const launchWithEngine = (game) => {
+    const modulesDir = path.join(
+        os.homedir(),
+        'Library',
+        'Application Support',
+        'Xenolauncher',
+        'modules'
+    );
+    if (!fs.existsSync(modulesDir)) {
+        return alert('Modules folder not found.');
+    }
+
+    const folders = fs.readdirSync(modulesDir, { withFileTypes: true })
+                        .filter(f => f.isDirectory())
+                        .map(f => f.name);
+
+    for (const folder of folders) {
+        const manifestPath = path.join(modulesDir, folder, 'manifest.json');
+        if (!fs.existsSync(manifestPath)) continue;
+        let manifest;
+        try {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        } catch (e) {
+        console.warn(`Invalid JSON in ${manifestPath}`, e);
+        continue;
+        }
+
+        if (manifest.name === game.gameEngine) {
+        const launcherPath = path.join(modulesDir, folder, 'launcher.js');
+        if (!fs.existsSync(launcherPath)) {
+            return alert(`launcher.js not found for engine “${game.gameEngine}”.`);
+        }
+        try {
+            const { launch } = require(launcherPath);
+            launch(game.gamePath, game.gameArgs);
+        } catch (e) {
+            console.error(`Error launching with ${game.gameEngine}:`, e);
+            alert(`Failed to launch: ${e.message}`);
+        }
+        return;
+        }
+    }
+
+    alert(`No module found matching engine “${game.gameEngine}.”`);
+    };
+
+
     // Watch for changes in the games.json file
     const watchGamesFile = () => {
       if (!fs.existsSync(gamesPath)) {
@@ -216,27 +264,7 @@
 
           // Add click event for the game box
           gameBox.addEventListener('click', () => {
-            // Launch the game with the specified engine
-            if (game.gameEngine === 'RPG MV/MZ (NWjs)') {
-              console.log(`Launch ${game.gameTitle} with NWjs`);
-              nwjsLaunch(game.gamePath, game.engineSettings);
-            } else if (game.gameEngine === 'RPG VX Ace, VX, XP (MKXP-Z)') {
-              // Development in progress
-              console.log(`Launch ${game.gameTitle} with mkxp-z`);
-              // Check if the Z-Universal.app (MKXP-Z) file exists
-              if (fs.existsSync(path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'mkxpz', 'Z-Universal.app'))) {
-                mkxpzLaunch(game.gamePath, game.engineSettings);
-              } else {
-                // Install MKXP-Z if not found
-                alert('MKXP-Z is not installed!');
-                openSubwindow('install-mkxpz.html');
-              }
-            } else if (game.gameEngine === 'MacOS') {
-              console.log(`Launch ${game.gameTitle} with MacOS`);
-              macosLaunch(game.gamePath, game.engineSettings);
-            } else {
-              console.log(`Launch failed for ${game.gameTitle}`);
-            }
+            launchWithEngine(game);
           });
 
           // Add click event for the options button

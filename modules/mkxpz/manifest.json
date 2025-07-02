@@ -1,0 +1,8 @@
+{
+    "name": "mkxpz",
+    "version": "1.0.0",
+    "description": "A module to launch MKXP-Z native games like RPG Maker XP, VX, and VX Ace.",
+    "author": "m5kro",
+    "license": "CC BY-NC-SA 4.0",
+    "main": "mkxpz-launcher.js"
+}

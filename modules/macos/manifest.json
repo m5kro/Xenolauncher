@@ -1,0 +1,14 @@
+{
+    "name": "MacOS",
+    "version": "1.0.0",
+    "description": "A default module to launch MacOS native games.",
+    "author": "m5kro",
+    "license": "MIT",
+    "gameArgs": {
+        "runWithRosetta": {
+            "type": "boolean",
+            "label": "Force Launch with Rosetta",
+            "default": false
+        }
+    }
+}
