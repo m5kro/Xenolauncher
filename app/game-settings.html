@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Game Settings</title>
   <link rel="stylesheet" href="game-settings.css">
 </head>
-
 <body>
   <h2>Edit Game</h2>
 
@@ -20,7 +18,6 @@
     <label for="exePath">Executable:</label>
     <div class="selector">
       <input type="text" id="exePath" placeholder="Select game executable">
-      <input type="file" id="exeInput" accept=".exe,.swf,.jar,.html,.apk,.py" hidden>
       <button id="selectExe" class="secondary-button">Select Executable</button>
     </div>
   </div>
@@ -29,7 +26,6 @@
     <label for="iconPath">Icon (optional):</label>
     <div class="selector">
       <input type="text" id="iconPath" placeholder="Select game icon">
-      <input type="file" id="iconInput" accept=".png,.jpg,.jpeg,.ico,.gif," hidden>
       <button id="selectIcon" class="secondary-button">Select Icon</button>
     </div>
   </div>
@@ -38,36 +34,12 @@
     <label for="gameEngine">Game Engine:</label>
     <select id="gameEngine">
       <option value="">Select a game engine</option>
-      <option value="RPG MV/MZ (NWjs)">RPG MV/MZ (NWjs)</option>
-      <option value="RPG VX Ace, VX, XP (MKXP-Z)">RPG VX Ace, VX, XP (MKXP-Z)</option>
-      <option value="RPG 2003, 2000 (EasyRPG)">RPG 2003, 2000 (EasyRPG)</option>
-      <option value="Godot">Godot</option>
-      <option value="Ren'Py (Python)">Ren'Py (Python)</option>
-      <option value="Flash (Ruffle)">Flash (Ruffle)</option>
-      <option value="Java">Java</option>
-      <option value="TyranoBuilder">TyranoBuilder</option>
-      <option value="HTML">HTML</option>
-      <option value="Android (Android Studio)">Android (Android Studio)</option>
-      <option value="Wine">Wine</option>
-      <option value="MacOS">MacOS</option>
     </select>
   </div>
 
-  <div id="options" style="display: none;">
-    <h3>Options</h3>
-    <div id="nwjsOptions" style="display: none;">
-      <div class="form-item">
-        <label for="nwjsVersion">NWjs Version:</label>
-        <select id="nwjsVersion">
-        </select>
-      </div>
-    </div>
-    <div id="macosOptions" style="display: none;">
-      <div class="form-toggle">
-        <label for="runWithRosetta">Run with Rosetta</label>
-        <input type="checkbox" id="runWithRosetta">
-      </div>
-    </div>
+  <div id="options" style="display: none; margin-top: 1em;">
+    <h3>Engine Options</h3>
+    <div id="engineOptions"></div>
   </div>
 
   <div class="footer">
@@ -79,203 +51,207 @@
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
-    const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
-    const gamesPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'games.json');
+    const { openFile } = require('macos-open-file-dialog');
 
-    const loadSettings = () => {
-      if (fs.existsSync(settingsPath)) {
-        const data = fs.readFileSync(settingsPath, 'utf-8');
-        try {
-          return JSON.parse(data);
-        } catch (error) {
-          console.error('Error parsing global-settings.json:', error);
-          return { darkTheme: false, defaultNWjsVersion: 'default', useRosetta: false }; // Default values on error
-        }
-      }
-      return { darkTheme: false, defaultNWjsVersion: 'default', useRosetta: false }; // Default values if file doesn't exist
-    };
+    const settingsPath = path.join(os.homedir(),
+      'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
+    const gamesPath  = path.join(os.homedir(),
+      'Library', 'Application Support', 'Xenolauncher', 'games.json');
+    const modulesDir = path.join(os.homedir(),
+      'Library', 'Application Support', 'Xenolauncher', 'modules');
 
-    const loadGames = () => {
-      if (fs.existsSync(gamesPath)) {
-        try {
-          return JSON.parse(fs.readFileSync(gamesPath, 'utf-8'));
-        } catch (error) {
-          console.error('Error parsing games.json:', error);
-          return {};
-        }
-      }
-      return {}; // Return an empty object if the file doesn't exist
-    };
+    const moduleManifests = {};
 
-    const saveGame = (gameId, gameData) => {
+    function loadSettings() {
+      if (!fs.existsSync(settingsPath)) return { darkTheme: false };
+      try { return JSON.parse(fs.readFileSync(settingsPath, 'utf8')); }
+      catch { return { darkTheme: false }; }
+    }
+
+    function loadGames() {
+      if (!fs.existsSync(gamesPath)) return {};
+      try { return JSON.parse(fs.readFileSync(gamesPath, 'utf8')); }
+      catch { return {}; }
+    }
+
+    function saveGame(gameId, data) {
       const games = loadGames();
-      games[gameId] = gameData;
+      games[gameId] = data;
       try {
-        fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2));
+        fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), 'utf8');
         alert('Game settings saved!');
-      } catch (error) {
-        console.error('Error saving game:', error);
-        alert('Failed to save game! ' + error.message);
-      }
-    };
-
-    const applyTheme = (isDark) => {
-      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    };
-
-    const populateNWjsVersions = () => {
-      const nwjsDir = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'nwjs');
-      const versionSelect = document.getElementById('nwjsVersion');
-      if (fs.existsSync(nwjsDir)) {
-        const versions = fs.readdirSync(nwjsDir).filter(file => fs.statSync(path.join(nwjsDir, file)).isDirectory());
-        versions.forEach(version => {
-          const option = document.createElement('option');
-          option.value = version;
-          option.textContent = version;
-          versionSelect.appendChild(option);
-        });
-      }
-    };
-
-    // Load settings and apply theme
-    const settings = loadSettings();
-    applyTheme(settings.darkTheme);
-
-    // Get game ID from URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const gameId = urlParams.get('gameId');
-
-    // Load game data
-    const games = loadGames();
-    const gameData = games[gameId];
-
-    if (gameData) {
-      document.getElementById('gameTitle').value = gameData.gameTitle;
-      document.getElementById('exePath').value = gameData.gamePath;
-      document.getElementById('iconPath').value = gameData.iconPath;
-      document.getElementById('gameEngine').value = gameData.gameEngine;
-
-      const optionsDiv = document.getElementById('options');
-      const nwjsOptionsDiv = document.getElementById('nwjsOptions');
-      const macosOptionsDiv = document.getElementById('macosOptions');
-      // Set engine-specific settings
-      if (gameData.gameEngine === 'RPG MV/MZ (NWjs)') {
-        optionsDiv.style.display = 'block';
-        nwjsOptionsDiv.style.display = 'block';
-        macosOptionsDiv.style.display = 'none';
-        populateNWjsVersions();
-        try {
-          document.getElementById('nwjsVersion').value = gameData.engineSettings.nwjsVersion;
-        } catch (error) {
-          document.getElementById('nwjsVersion').value = settings.defaultNWjsVersion;
-          console.error('Error setting defaultNWjsVersion:', error);
-        }
-      } else if (gameData.gameEngine === 'MacOS') {
-        const optionsDiv = document.getElementById('options');
-        optionsDiv.style.display = 'block';
-        nwjsOptionsDiv.style.display = 'none';
-        macosOptionsDiv.style.display = 'block';
-        try {
-          document.getElementById('runWithRosetta').checked = gameData.engineSettings.runWithRosetta;
-        } catch (error) {
-          document.getElementById('runWithRosetta').checked = settings.useRosetta;
-          console.error('Error setting runWithRosetta:', error);
-        }
+      } catch (e) {
+        console.error('Error saving game:', e);
+        alert('Failed to save game: ' + e.message);
       }
     }
 
-    // Event handlers for executable selection
-    document.getElementById('selectExe').addEventListener('click', () => {
-      const exeInput = document.getElementById('exeInput');
-      exeInput.click();
-    });
+    // Load module manifests from the modules directory
+    function loadModuleManifests() {
+      if (!fs.existsSync(modulesDir)) return;
+      fs.readdirSync(modulesDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .forEach(d => {
+          const mf = path.join(modulesDir, d.name, 'manifest.json');
+          if (!fs.existsSync(mf)) return;
+          try {
+            moduleManifests[d.name] = JSON.parse(fs.readFileSync(mf, 'utf8'));
+          } catch (e) {
+            console.error(`Bad manifest in ${d.name}:`, e);
+          }
+        });
+    }
 
-    document.getElementById('exeInput').addEventListener('change', (event) => {
-      const files = event.target.files;
-      if (files.length > 0) {
-        document.getElementById('exePath').value = files[0].path;
-      }
-    });
+    function populateEngineDropdown() {
+      const sel = document.getElementById('gameEngine');
+      Object.entries(moduleManifests).forEach(([key, m]) => {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = m.name || key;
+        sel.appendChild(opt);
+      });
+    }
 
-    // Event handlers for icon selection
-    document.getElementById('selectIcon').addEventListener('click', () => {
-      const iconInput = document.getElementById('iconInput');
-      iconInput.click();
-    });
+    // Build options UI based on selected engine
+    function buildOptionsUI() {
+      const engine = document.getElementById('gameEngine').value;
+      const optsDiv = document.getElementById('options');
+      const container = document.getElementById('engineOptions');
+      container.innerHTML = '';
 
-    document.getElementById('iconInput').addEventListener('change', (event) => {
-      const files = event.target.files;
-      if (files.length > 0) {
-        document.getElementById('iconPath').value = files[0].path;
-      }
-    });
-
-    // Event handler for game engine selection
-    document.getElementById('gameEngine').addEventListener('change', (event) => {
-      const selectedEngine = event.target.value;
-      const optionsDiv = document.getElementById('options');
-      const nwjsOptionsDiv = document.getElementById('nwjsOptions');
-      const macosOptionsDiv = document.getElementById('macosOptions');
-
-      if (selectedEngine) {
-        optionsDiv.style.display = 'block';
-      } else {
-        optionsDiv.style.display = 'none';
-      }
-
-      if (selectedEngine === 'RPG MV/MZ (NWjs)') {
-        nwjsOptionsDiv.style.display = 'block';
-        macosOptionsDiv.style.display = 'none';
-        populateNWjsVersions();
-        try {
-          document.getElementById('nwjsVersion').value = settings.defaultNWjsVersion;
-        } catch (error) {
-          console.error('Error setting defaultNWjsVersion:', error);
-        }
-      } else if (selectedEngine === 'MacOS') {
-        nwjsOptionsDiv.style.display = 'none';
-        macosOptionsDiv.style.display = 'block';
-        try {
-          document.getElementById('runWithRosetta').checked = settings.useRosetta;
-        } catch (error) {
-          console.error('Error setting runWithRosetta:', error);
-        }
-      } else {
-        nwjsOptionsDiv.style.display = 'none';
-        macosOptionsDiv.style.display = 'none';
-      }
-    });
-
-    // Event handlers for save and cancel buttons
-    document.getElementById('saveGame').addEventListener('click', () => {
-      const gameTitle = document.getElementById('gameTitle').value.trim();
-      const exePath = document.getElementById('exePath').value.trim();
-      const iconPath = document.getElementById('iconPath').value.trim();
-      const gameEngine = document.getElementById('gameEngine').value;
-      const nwjsVersion = document.getElementById('nwjsVersion').value;
-      const runWithRosetta = document.getElementById('runWithRosetta').checked;
-
-      if (!gameTitle || !exePath || !gameEngine) {
-        alert('Please fill in all fields.');
+      if (!engine || !moduleManifests[engine]) {
+        optsDiv.style.display = 'none';
         return;
       }
 
-      const updatedGameData = { gameTitle, gamePath: exePath, iconPath, gameEngine, engineSettings: {} };
+      const defs = moduleManifests[engine].gameArgs || {};
+      Object.entries(defs).forEach(([key, def]) => {
+        const id = `arg-${key}`;
+        const wrapper = document.createElement('div');
+        wrapper.classList.add(def.type === 'boolean' ? 'form-toggle' : 'form-item');
 
-      if (gameEngine === 'RPG MV/MZ (NWjs)') {
-        updatedGameData.engineSettings = { nwjsVersion };
-      } else if (gameEngine === 'MacOS') {
-        updatedGameData.engineSettings = { runWithRosetta };
+        const label = document.createElement('label');
+        label.setAttribute('for', id);
+        label.textContent = def.label;
+        wrapper.appendChild(label);
+
+        let input;
+        if (def.type === 'boolean') {
+          input = document.createElement('input');
+          input.type = 'checkbox';
+          input.id = id;
+          input.checked = !!def.default;
+        } else {
+          input = document.createElement('input');
+          input.id = id;
+          input.name = key;
+          if (def.type === 'int') {
+            input.type = 'number';
+            input.step = '1';
+            input.value = def.default != null ? def.default : '';
+          } else if (def.type === 'float') {
+            input.type = 'number';
+            input.step = 'any';
+            input.value = def.default != null ? def.default : '';
+          } else {
+            input.type = 'text';
+            input.value = def.default || '';
+          }
+        }
+
+        wrapper.appendChild(input);
+        container.appendChild(wrapper);
+      });
+
+      optsDiv.style.display = Object.keys(defs).length ? 'block' : 'none';
+    }
+
+    // File pickers
+    document.getElementById('selectExe').addEventListener('click', async ()=>{
+      const p = await openFile('Select a game executable',
+        ['exe','swf','jar','html','apk','py','app']);
+      document.getElementById('exePath').value = p;
+    });
+    document.getElementById('selectIcon').addEventListener('click', async ()=>{
+      const p = await openFile('Select a game icon',
+        ['png','jpg','jpeg','ico','gif']);
+      document.getElementById('iconPath').value = p;
+    });
+
+    // Engine change
+    document.getElementById('gameEngine')
+      .addEventListener('change', buildOptionsUI);
+
+    // Apply theme
+    const settings = loadSettings();
+    document.documentElement.setAttribute(
+      'data-theme', settings.darkTheme ? 'dark' : 'light'
+    );
+
+    // Init
+    loadModuleManifests();
+    populateEngineDropdown();
+
+    // Load existing game
+    const urlParams = new URLSearchParams(window.location.search);
+    const gameId = urlParams.get('gameId');
+    const games = loadGames();
+    const gameData = games[gameId];
+    if (gameData) {
+      document.getElementById('gameTitle').value   = gameData.gameTitle;
+      document.getElementById('exePath').value     = gameData.gamePath;
+      document.getElementById('iconPath').value    = gameData.iconPath;
+      document.getElementById('gameEngine').value  = gameData.gameEngine;
+
+      buildOptionsUI();
+      const defs = moduleManifests[gameData.gameEngine]?.gameArgs || {};
+      Object.entries(defs).forEach(([key, def]) => {
+        const el = document.getElementById(`arg-${key}`);
+        if (!el) return;
+        const saved = gameData.gameArgs?.[key];
+        if (def.type === 'boolean') {
+          el.checked = typeof saved === 'boolean' ? saved : !!def.default;
+        } else {
+          el.value = saved != null ? saved : (def.default || '');
+        }
+      });
+    }
+
+    // Save
+    document.getElementById('saveGame').addEventListener('click', () => {
+      const title  = document.getElementById('gameTitle').value.trim();
+      const exe    = document.getElementById('exePath').value.trim();
+      const icon   = document.getElementById('iconPath').value.trim();
+      const engine = document.getElementById('gameEngine').value;
+      if (!title || !exe || !engine) {
+        return alert('Please fill in all fields.');
       }
+
+      const defs = moduleManifests[engine].gameArgs || {};
+      const settingsObj = {};
+      Object.entries(defs).forEach(([key, def]) => {
+        const el = document.getElementById(`arg-${key}`);
+        if (!el) return;
+        if (def.type === 'boolean')       settingsObj[key] = el.checked;
+        else if (def.type === 'int')      settingsObj[key] = parseInt(el.value, 10) || 0;
+        else if (def.type === 'float')    settingsObj[key] = parseFloat(el.value) || 0.0;
+        else                               settingsObj[key] = el.value;
+      });
+
+      const updatedGameData = {
+        gameTitle:   title,
+        gamePath:    exe,
+        iconPath:    icon,
+        gameEngine:  engine,
+        gameArgs:    settingsObj
+      };
 
       saveGame(gameId, updatedGameData);
       nw.Window.get().close();
     });
 
-    document.getElementById('cancelButton').addEventListener('click', () => {
-      nw.Window.get().close();
-    });
+    document.getElementById('cancelButton')
+      .addEventListener('click', () => nw.Window.get().close());
   </script>
 </body>
-
 </html>

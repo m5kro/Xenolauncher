@@ -27,25 +27,25 @@
   </div>
 
   <script>
+    // More options may be added in the future
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
     const currentVersion = "0.3.0";
     const settingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
 
+    // Ensure the settings directory exists
     const loadSettings = () => {
       if (fs.existsSync(settingsPath)) {
         const data = fs.readFileSync(settingsPath, 'utf-8');
         const settings = JSON.parse(data);
         return {
           darkTheme: settings.darkTheme ?? window.matchMedia('(prefers-color-scheme: dark)').matches,
-          deletionConfirmation: settings.deletionConfirmation ?? true,
-          defaultNWjsVersion: settings.defaultNWjsVersion ?? 'default',
-          useRosetta: settings.useRosetta ?? false
+          deletionConfirmation: settings.deletionConfirmation ?? true
         };
       }
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      return { darkTheme: prefersDark, deletionConfirmation: true, defaultNWjsVersion: 'default', useRosetta: false };
+      return { darkTheme: prefersDark, deletionConfirmation: true };
     };
 
     const saveSettings = (settings) => {
@@ -58,6 +58,7 @@
       }
     };
 
+    // Apply the theme based on the settings, this will be on every page
     const applyTheme = (isDark) => {
       document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
     };

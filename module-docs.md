@@ -65,3 +65,52 @@ These options will be passed into your launch function.
     }
 }
 ```
+
+# launcher.js
+**Every module must have a launcher.js with a function named launch that takes in gamePath and gameArgs**<br>
+**You must also export the launch function with `exports.launch = launch;`**<br>
+<br>
+launcher.js is the connector between xenolauncher and the compatability layer being used. It should take in gamePath and gameArgs and apply them to the compatability layer accordingly. It's up to you how it gets done.
+
+### Example
+```
+const launch = (gamePath, gameArgs) => { // <-- REQUIRED
+    const { exec } = require('child_process');
+    console.log(gameArgs);
+    if (gameArgs.runWithRosetta) {
+        // Tim we are not cooking with this
+        exec(`xattr -cr "${gamePath}"`, (err, stdout, stderr) => {
+            if (err) {
+                console.error(err);
+                return;
+            }
+            console.log(stdout);
+        });
+        // Forces the game to run with Rosetta on M series macs, support is not guaranteed
+        exec(`open --arch x86_64 "${gamePath}"`, (err, stdout, stderr) => {
+            if (err) {
+                console.error(err);
+                return;
+            }
+            console.log(stdout);
+        });
+    } else {
+        // Why apple, why do you have to make this so difficult?
+        exec(`xattr -cr "${gamePath}"`, (err, stdout, stderr) => {
+            if (err) {
+                console.error(err);
+                return;
+            }
+            console.log(stdout);
+        });
+        exec(`open "${gamePath}"`, (err, stdout, stderr) => {
+            if (err) {
+                console.error(err);
+                return;
+            }
+            console.log(stdout);
+        });
+    }
+}
+exports.launch = launch; // <-- REQUIRED
+```
