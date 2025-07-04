@@ -1,246 +1,249 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Add Game</title>
-  <link rel="stylesheet" href="add-game.css">
-</head>
-<body>
-  <h2>Add Game</h2>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Add Game</title>
+        <link rel="stylesheet" href="add-game.css" />
+    </head>
+    <body>
+        <h2>Add Game</h2>
 
-  <div class="form-item">
-    <label for="gameTitle">Game Title:</label>
-    <input type="text" id="gameTitle" placeholder="Enter game title">
-  </div>
+        <div class="form-item">
+            <label for="gameTitle">Game Title:</label>
+            <input type="text" id="gameTitle" placeholder="Enter game title" />
+        </div>
 
-  <div class="form-item">
-    <label for="exePath">Executable:</label>
-    <div class="selector">
-      <input type="text" id="exePath" placeholder="Select game executable">
-      <button id="selectExe" class="secondary-button">Select Executable</button>
-    </div>
-  </div>
+        <div class="form-item">
+            <label for="exePath">Executable:</label>
+            <div class="selector">
+                <input type="text" id="exePath" placeholder="Select game executable" />
+                <button id="selectExe" class="secondary-button">Select Executable</button>
+            </div>
+        </div>
 
-  <div class="form-item">
-    <label for="iconPath">Icon (optional):</label>
-    <div class="selector">
-      <input type="text" id="iconPath" placeholder="Select game icon">
-      <button id="selectIcon" class="secondary-button">Select Icon</button>
-    </div>
-  </div>
+        <div class="form-item">
+            <label for="iconPath">Icon (optional):</label>
+            <div class="selector">
+                <input type="text" id="iconPath" placeholder="Select game icon" />
+                <button id="selectIcon" class="secondary-button">Select Icon</button>
+            </div>
+        </div>
 
-  <div class="form-item">
-    <label for="gameEngine">Game Engine:</label>
-    <select id="gameEngine">
-      <option value="">Select a game engine</option>
-    </select>
-  </div>
+        <div class="form-item">
+            <label for="gameEngine">Game Engine:</label>
+            <select id="gameEngine">
+                <option value="">Select a game engine</option>
+            </select>
+        </div>
 
-  <div id="options" style="display: none; margin-top: 1em;">
-    <h3>Engine Options</h3>
-    <div id="engineOptions"></div>
-  </div>
+        <div id="options" style="display: none; margin-top: 1em">
+            <h3>Engine Options</h3>
+            <div id="engineOptions"></div>
+        </div>
 
-  <div class="footer">
-    <button id="cancelButton" class="secondary-button">Cancel</button>
-    <button id="saveGame" class="primary-button">Save</button>
-  </div>
+        <div class="footer">
+            <button id="cancelButton" class="secondary-button">Cancel</button>
+            <button id="saveGame" class="primary-button">Save</button>
+        </div>
 
-  <script>
-    const fs = require('fs');
-    const path = require('path');
-    const os = require('os');
-    const { openFile } = require('macos-open-file-dialog');
+        <script>
+            const fs = require("fs");
+            const path = require("path");
+            const os = require("os");
+            const { openFile } = require("macos-open-file-dialog");
 
-    const settingsPath = path.join(os.homedir(),
-      'Library', 'Application Support', 'Xenolauncher', 'global-settings.json');
-    const gamesPath  = path.join(os.homedir(),
-      'Library', 'Application Support', 'Xenolauncher', 'games.json');
-    const modulesDir = path.join(os.homedir(),
-      'Library', 'Application Support', 'Xenolauncher', 'modules');
-
-    const moduleManifests = {};
-
-    function loadSettings() {
-      if (fs.existsSync(settingsPath)) {
-        try { return JSON.parse(fs.readFileSync(settingsPath, 'utf8')); }
-        catch { return { darkTheme: false }; }
-      }
-      return { darkTheme: false };
-    }
-    function loadGames() {
-      if (fs.existsSync(gamesPath)) {
-        try { return JSON.parse(fs.readFileSync(gamesPath, 'utf8')); }
-        catch { return {}; }
-      }
-      return {};
-    }
-    function saveGame(data) {
-      const games = loadGames();
-      const nextID = Object.keys(games)
-        .map(n=>parseInt(n,10)).reduce((m,c)=>Math.max(m,c),0)+1;
-      games[nextID] = data;
-      try {
-        fs.writeFileSync(gamesPath, JSON.stringify(games,null,2), 'utf8');
-      } catch (e) {
-        console.error('Error saving game:', e);
-        alert('Failed to save game: ' + e.message);
-      }
-    }
-
-    // Apply theme
-    const settings = loadSettings();
-    document.documentElement.setAttribute(
-      'data-theme', settings.darkTheme ? 'dark' : 'light'
-    );
-
-    // Load all module manifests
-    function loadModuleManifests() {
-      if (!fs.existsSync(modulesDir)) return;
-      fs.readdirSync(modulesDir, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .forEach(d => {
-          const mf = path.join(modulesDir, d.name, 'manifest.json');
-          if (!fs.existsSync(mf)) return;
-          try {
-            moduleManifests[d.name] = JSON.parse(
-              fs.readFileSync(mf, 'utf8')
+            const settingsPath = path.join(
+                os.homedir(),
+                "Library",
+                "Application Support",
+                "Xenolauncher",
+                "global-settings.json"
             );
-          } catch (e) {
-            console.error(`Bad manifest in ${d.name}:`, e);
-          }
-        });
-    }
+            const gamesPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "games.json");
+            const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
 
-    // Fill engine dropdown
-    function populateEngineDropdown() {
-      const sel = document.getElementById('gameEngine');
-      Object.entries(moduleManifests).forEach(([key, m]) => {
-        const o = document.createElement('option');
-        o.value = key;
-        o.textContent = m.name || key;
-        sel.appendChild(o);
-      });
-    }
+            const moduleManifests = {};
 
-    // Build options UI for chosen engine
-    function onEngineChange() {
-      const chosen = document.getElementById('gameEngine').value;
-      const optsDiv = document.getElementById('options');
-      const container = document.getElementById('engineOptions');
-      container.innerHTML = '';
+            function loadSettings() {
+                if (fs.existsSync(settingsPath)) {
+                    try {
+                        return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+                    } catch {
+                        return { darkTheme: false };
+                    }
+                }
+                return { darkTheme: false };
+            }
+            function loadGames() {
+                if (fs.existsSync(gamesPath)) {
+                    try {
+                        return JSON.parse(fs.readFileSync(gamesPath, "utf8"));
+                    } catch {
+                        return {};
+                    }
+                }
+                return {};
+            }
+            function saveGame(data) {
+                const games = loadGames();
+                const nextID =
+                    Object.keys(games)
+                        .map((n) => parseInt(n, 10))
+                        .reduce((m, c) => Math.max(m, c), 0) + 1;
+                games[nextID] = data;
+                try {
+                    fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), "utf8");
+                } catch (e) {
+                    console.error("Error saving game:", e);
+                    alert("Failed to save game: " + e.message);
+                }
+            }
 
-      if (!chosen || !moduleManifests[chosen]) {
-        optsDiv.style.display = 'none';
-        return;
-      }
+            // Apply theme
+            const settings = loadSettings();
+            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
 
-      const argsDef = moduleManifests[chosen].gameArgs || {};
-      Object.entries(argsDef).forEach(([key, def]) => {
-        const id = `arg-${key}`;
-        const wrapper = document.createElement('div');
-        wrapper.classList.add(def.type === 'boolean' ? 'form-toggle' : 'form-item');
+            // Load all module manifests
+            function loadModuleManifests() {
+                if (!fs.existsSync(modulesDir)) return;
+                fs.readdirSync(modulesDir, { withFileTypes: true })
+                    .filter((d) => d.isDirectory())
+                    .forEach((d) => {
+                        const mf = path.join(modulesDir, d.name, "manifest.json");
+                        if (!fs.existsSync(mf)) return;
+                        try {
+                            moduleManifests[d.name] = JSON.parse(fs.readFileSync(mf, "utf8"));
+                        } catch (e) {
+                            console.error(`Bad manifest in ${d.name}:`, e);
+                        }
+                    });
+            }
 
-        // Label
-        const label = document.createElement('label');
-        label.setAttribute('for', id);
-        label.textContent = def.label;
+            // Fill engine dropdown
+            function populateEngineDropdown() {
+                const sel = document.getElementById("gameEngine");
+                Object.entries(moduleManifests).forEach(([key, m]) => {
+                    const o = document.createElement("option");
+                    o.value = key;
+                    o.textContent = m.name || key;
+                    sel.appendChild(o);
+                });
+            }
 
-        // Input
-        let input;
-        if (def.type === 'boolean') {
-          input = document.createElement('input');
-          input.type = 'checkbox';
-          input.id   = id;
-          input.checked = !!def.default;
-        } else {
-          input = document.createElement('input');
-          input.id   = id;
-          input.name = key;
-          if (def.type === 'string') {
-            input.type  = 'text';
-            input.value = def.default || '';
-          } else if (def.type === 'int') {
-            input.type  = 'number';
-            input.step  = '1';
-            input.value = def.default != null ? def.default : '';
-          } else if (def.type === 'float') {
-            input.type  = 'number';
-            input.step  = 'any';
-            input.value = def.default != null ? def.default : '';
-          } else {
-            input.type  = 'text';
-            input.value = def.default || '';
-          }
-        }
+            // Build options UI for chosen engine
+            function onEngineChange() {
+                const chosen = document.getElementById("gameEngine").value;
+                const optsDiv = document.getElementById("options");
+                const container = document.getElementById("engineOptions");
+                container.innerHTML = "";
 
-        wrapper.appendChild(label);
-        wrapper.appendChild(input);
-        container.appendChild(wrapper);
-      });
+                if (!chosen || !moduleManifests[chosen]) {
+                    optsDiv.style.display = "none";
+                    return;
+                }
 
-      optsDiv.style.display = Object.keys(argsDef).length ? 'block' : 'none';
-    }
+                const argsDef = moduleManifests[chosen].gameArgs || {};
+                Object.entries(argsDef).forEach(([key, def]) => {
+                    const id = `arg-${key}`;
+                    const wrapper = document.createElement("div");
+                    wrapper.classList.add(def.type === "boolean" ? "form-toggle" : "form-item");
 
-    // Init
-    loadModuleManifests();
-    populateEngineDropdown();
-    document.getElementById('gameEngine')
-      .addEventListener('change', onEngineChange);
+                    // Label
+                    const label = document.createElement("label");
+                    label.setAttribute("for", id);
+                    label.textContent = def.label;
 
-    // File pickers
-    document.getElementById('selectExe').addEventListener('click', async ()=>{
-      const p = await openFile('Select a game executable',
-        ['exe','swf','jar','html','apk','py','app']);
-      document.getElementById('exePath').value = p;
-    });
-    document.getElementById('selectIcon').addEventListener('click', async ()=>{
-      const p = await openFile('Select a game icon',
-        ['png','jpg','jpeg','ico','gif']);
-      document.getElementById('iconPath').value = p;
-    });
+                    // Input
+                    let input;
+                    if (def.type === "boolean") {
+                        input = document.createElement("input");
+                        input.type = "checkbox";
+                        input.id = id;
+                        input.checked = !!def.default;
+                    } else {
+                        input = document.createElement("input");
+                        input.id = id;
+                        input.name = key;
+                        if (def.type === "string") {
+                            input.type = "text";
+                            input.value = def.default || "";
+                        } else if (def.type === "int") {
+                            input.type = "number";
+                            input.step = "1";
+                            input.value = def.default != null ? def.default : "";
+                        } else if (def.type === "float") {
+                            input.type = "number";
+                            input.step = "any";
+                            input.value = def.default != null ? def.default : "";
+                        } else {
+                            input.type = "text";
+                            input.value = def.default || "";
+                        }
+                    }
 
-    // Save
-    document.getElementById('saveGame').addEventListener('click', ()=>{
-      const title   = document.getElementById('gameTitle').value.trim();
-      const exePath = document.getElementById('exePath').value.trim();
-      const icon    = document.getElementById('iconPath').value.trim();
-      const engine  = document.getElementById('gameEngine').value;
-      if (!title || !exePath || !engine) {
-        return alert('Please fill in all fields.');
-      }
+                    wrapper.appendChild(label);
+                    wrapper.appendChild(input);
+                    container.appendChild(wrapper);
+                });
 
-      const defArgs = moduleManifests[engine].gameArgs || {};
-      const settingsObj = {};
+                optsDiv.style.display = Object.keys(argsDef).length ? "block" : "none";
+            }
 
-      Object.keys(defArgs).forEach(key => {
-        const el = document.getElementById(`arg-${key}`);
-        if (!el) return;
-        if (defArgs[key].type === 'boolean') {
-          settingsObj[key] = el.checked;
-        } else if (defArgs[key].type === 'int') {
-          settingsObj[key] = parseInt(el.value, 10) || 0;
-        } else if (defArgs[key].type === 'float') {
-          settingsObj[key] = parseFloat(el.value) || 0.0;
-        } else {
-          settingsObj[key] = el.value;
-        }
-      });
+            // Init
+            loadModuleManifests();
+            populateEngineDropdown();
+            document.getElementById("gameEngine").addEventListener("change", onEngineChange);
 
-      saveGame({
-        gameTitle: title,
-        gamePath: exePath,
-        iconPath: icon,
-        gameEngine: engine,
-        gameArgs: settingsObj
-      });
+            // File pickers
+            document.getElementById("selectExe").addEventListener("click", async () => {
+                const p = await openFile("Select a game executable", ["exe", "swf", "jar", "html", "apk", "py", "app"]);
+                document.getElementById("exePath").value = p;
+            });
+            document.getElementById("selectIcon").addEventListener("click", async () => {
+                const p = await openFile("Select a game icon", ["png", "jpg", "jpeg", "ico", "gif"]);
+                document.getElementById("iconPath").value = p;
+            });
 
-      nw.Window.get().close();
-    });
+            // Save
+            document.getElementById("saveGame").addEventListener("click", () => {
+                const title = document.getElementById("gameTitle").value.trim();
+                const exePath = document.getElementById("exePath").value.trim();
+                const icon = document.getElementById("iconPath").value.trim();
+                const engine = document.getElementById("gameEngine").value;
+                if (!title || !exePath || !engine) {
+                    return alert("Please fill in all fields.");
+                }
 
-    document.getElementById('cancelButton')
-      .addEventListener('click', ()=> nw.Window.get().close());
-  </script>
-</body>
+                const defArgs = moduleManifests[engine].gameArgs || {};
+                const settingsObj = {};
+
+                Object.keys(defArgs).forEach((key) => {
+                    const el = document.getElementById(`arg-${key}`);
+                    if (!el) return;
+                    if (defArgs[key].type === "boolean") {
+                        settingsObj[key] = el.checked;
+                    } else if (defArgs[key].type === "int") {
+                        settingsObj[key] = parseInt(el.value, 10) || 0;
+                    } else if (defArgs[key].type === "float") {
+                        settingsObj[key] = parseFloat(el.value) || 0.0;
+                    } else {
+                        settingsObj[key] = el.value;
+                    }
+                });
+
+                saveGame({
+                    gameTitle: title,
+                    gamePath: exePath,
+                    iconPath: icon,
+                    gameEngine: engine,
+                    gameArgs: settingsObj,
+                });
+
+                nw.Window.get().close();
+            });
+
+            document.getElementById("cancelButton").addEventListener("click", () => nw.Window.get().close());
+        </script>
+    </body>
 </html>

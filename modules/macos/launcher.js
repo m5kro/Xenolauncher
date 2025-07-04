@@ -2,7 +2,7 @@
 // Not "safe" though, as it auto trusts the game to make it more "seamless" for users
 // Bypasses apple's stupid "unidentified developer" warning
 const launch = (gamePath, gameArgs) => {
-    const { exec } = require('child_process');
+    const { exec } = require("child_process");
     console.log(gameArgs);
     if (gameArgs.runWithRosetta) {
         // Tim we are not cooking with this
@@ -38,5 +38,5 @@ const launch = (gamePath, gameArgs) => {
             console.log(stdout);
         });
     }
-}
+};
 exports.launch = launch;
