@@ -25,7 +25,9 @@
             const fs = require("fs");
             const path = require("path");
             const os = require("os");
-            const currentVersion = "0.3.0";
+            const { exec } = require("child_process");
+
+            const currentVersion = "0.4.0";
             const settingsPath = path.join(
                 os.homedir(),
                 "Library",
@@ -46,34 +48,37 @@
                     };
                 }
                 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-                return { darkTheme: prefersDark, deletionConfirmation: true };
+                return { darkTheme: prefersDark, deletionConfirmation: true, currentVersion: "0.0.0" };
             };
 
             // Check for settings and if it doesn't exist run first time setup
             const firstSetup = () => {
                 if (!fs.existsSync(settingsPath)) {
                     alert(
-                        "Welcome to Xenolauncher! This is your first time running the app. You can add games and customize settings. In a moment, the global settings window will open."
+                        "Welcome to Xenolauncher! Please configure your global settings and install some game engines!"
                     );
                     openSubwindow("global-settings.html");
                 }
             };
 
             const updateDetect = () => {
-                const settings = loadSettings();
-                if (settings.currentVersion !== currentVersion) {
-                    alert(
-                        "Xenolauncher has been updated to version " +
-                            currentVersion +
-                            "! Check out the new features and improvements!"
-                    );
-                    openSubwindow("global-settings.html");
+                // Don't show update alert if in first setup
+                if (fs.existsSync(settingsPath)) {
+                    const settings = loadSettings();
+                    if (settings.currentVersion !== currentVersion) {
+                        alert(
+                            "Xenolauncher has been updated to version " +
+                                currentVersion +
+                                "! Check out the new features and improvements!"
+                        );
+                        openSubwindow("global-settings.html");
+                    }
+                    // Update the current version in the settings json, without overwriting other settings
+                    const data = fs.readFileSync(settingsPath, "utf-8");
+                    const settingsData = JSON.parse(data);
+                    settingsData.currentVersion = currentVersion;
+                    fs.writeFileSync(settingsPath, JSON.stringify(settingsData, null, 2));
                 }
-                // Update the current version in the settings json, without overwriting other settings
-                const data = fs.readFileSync(settingsPath, "utf-8");
-                const settingsData = JSON.parse(data);
-                settingsData.currentVersion = currentVersion;
-                fs.writeFileSync(settingsPath, JSON.stringify(settingsData, null, 2));
             };
 
             // Remove the game entry
@@ -171,6 +176,39 @@
                     console.warn(`Invalid JSON in ${manifestPath}`, e);
                     return alert(`Invalid manifest for engine “${game.gameEngine}.”`);
                 }
+
+                // Fix possible permissions issues on macOS
+                let gameFolder = game.gamePath;
+                if (fs.statSync(game.gamePath).isFile()) {
+                    // If gamePath is a file, use its directory
+                    gameFolder = path.dirname(game.gamePath);
+                }
+
+
+                // Set ownership to the current user
+                exec(`chown -R "${os.userInfo().uid}" "${gameFolder}"`, (err) => {
+                    if (err) {
+                        alert(`Failed to change ownership for ${gameFolder}:`, err);
+                    } else {
+                        console.log(`Changed ownership for ${gameFolder}`);
+                    }
+                });
+                // Set xattr to remove quarantine flags
+                exec(`xattr -cr "${gameFolder}"`, (err) => {
+                    if (err) {
+                        alert(`Failed to set xattr for ${gameFolder}:`, err);
+                    } else {
+                        console.log(`Set xattr for ${gameFolder}`);
+                    }
+                });
+                // Set permissions to 700 
+                exec(`chmod -R 700 "${gameFolder}"`, (err) => {
+                    if (err) {
+                        alert(`Failed to set permissions for ${gameFolder}:`, err);
+                    } else {
+                        console.log(`Set permissions for ${gameFolder}`);
+                    }
+                });
 
                 // Load and call the launcher
                 const launcherPath = path.join(modulePath, "launcher.js");
@@ -347,6 +385,8 @@
                 const settings = loadSettings();
                 applyTheme(settings.darkTheme);
 
+                firstSetup();
+
                 updateDetect();
 
                 // Add event listeners for the buttons
@@ -366,7 +406,6 @@
             };
 
             init();
-            firstSetup();
         </script>
     </body>
 </html>
