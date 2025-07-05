@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Engine Module Manager</title>
+        <link rel="stylesheet" href="module-manager.css" />
+    </head>
+    <body>
+        <h1>Engine Module Manager</h1>
+
+        <div id="modules-container">
+            <!-- Modules will be injected here -->
+        </div>
+
+        <div class="footer">
+            <button id="closeButton" class="secondary-button">Close</button>
+            <button id="refresh-btn" class="primary-button">Refresh Modules</button>
+        </div>
+
+        <script>
+            (function () {
+                const fs = require("fs");
+                const path = require("path");
+                const os = require("os");
+                const unzipper = require("unzipper");
+                const { exec } = require("child_process");
+
+                const settingsPath = path.join(
+                    os.homedir(),
+                    "Library",
+                    "Application Support",
+                    "Xenolauncher",
+                    "global-settings.json"
+                );
+
+                function loadSettings() {
+                    if (!fs.existsSync(settingsPath)) return { darkTheme: false };
+                    try {
+                        return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+                    } catch {
+                        return { darkTheme: false };
+                    }
+                }
+                const settings = loadSettings();
+                document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
+
+                const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
+
+                function getInstalledModules() {
+                    const installed = new Set();
+                    if (!fs.existsSync(modulesDir)) return installed;
+                    fs.readdirSync(modulesDir, { withFileTypes: true })
+                        .filter((d) => d.isDirectory())
+                        .forEach((d) => installed.add(d.name));
+                    return installed;
+                }
+
+                // GitHub repo settings
+                const owner = "m5kro";
+                const repo = "Xenolauncher";
+                const branch = "main";
+                const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
+                const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}`;
+
+                document.getElementById("refresh-btn").addEventListener("click", fetchModules);
+                document.getElementById("closeButton").addEventListener("click", () => nw.Window.get().close());
+
+                // Fetch remote modules, then render table
+                async function fetchModules() {
+                    const container = document.getElementById("modules-container");
+                    container.innerHTML = "<p>Loading modules…</p>";
+                    try {
+                        const res = await fetch(`${apiBase}/modules?ref=${branch}`);
+                        if (!res.ok) throw new Error(`GitHub API error ${res.status}`);
+                        const items = await res.json();
+                        const dirs = items.filter((i) => i.type === "dir");
+                        const manifests = await Promise.all(dirs.map((d) => fetchManifest(d.name)));
+                        const installed = getInstalledModules();
+                        renderTable(manifests, installed);
+                    } catch (err) {
+                        container.innerHTML = `<p style="color:red;">
+                                 Error loading modules: ${err.message}
+                               </p>`;
+                    }
+                }
+
+                // Fetch a module's manifest and remember its folder to keep consistent with the local filesystem structure
+                async function fetchManifest(folderName) {
+                    const rawUrl = `${rawBase}/modules/${folderName}/manifest.json`;
+                    try {
+                        const res = await fetch(rawUrl);
+                        if (!res.ok) throw new Error(`status ${res.status}`);
+                        const json = await res.json();
+                        return {
+                            folder: folderName,
+                            name: json.name || folderName,
+                            version: json.version || "N/A",
+                            author: json.author || "N/A",
+                            description: json.description || "",
+                        };
+                    } catch {
+                        return {
+                            folder: folderName,
+                            name: folderName,
+                            version: "N/A",
+                            author: "N/A",
+                            description: "Failed to load manifest",
+                        };
+                    }
+                }
+
+                function makeInstallButton(folder) {
+                    const btn = document.createElement("button");
+                    btn.className = "primary-button";
+                    btn.textContent = "Install";
+                    btn.addEventListener("click", async () => {
+                        btn.disabled = true;
+                        btn.textContent = "Installing…";
+                        try {
+                            await installModule(folder);
+                            btn.replaceWith(makeUninstallButton(folder));
+                        } catch (e) {
+                            console.error(e);
+                            btn.textContent = "Error";
+                            btn.disabled = false;
+                        }
+                    });
+                    return btn;
+                }
+
+                function makeUninstallButton(folder) {
+                    const btn = document.createElement("button");
+                    btn.className = "secondary-button";
+                    btn.textContent = "Uninstall";
+                    btn.addEventListener("click", () => {
+                        if (!confirm("Are you sure you want to uninstall this module?")) {
+                            return;
+                        }
+                        btn.disabled = true;
+                        btn.textContent = "Uninstalling…";
+                        try {
+                            uninstallModule(folder);
+                            btn.replaceWith(makeInstallButton(folder));
+                        } catch (e) {
+                            console.error(e);
+                            btn.textContent = "Error";
+                            btn.disabled = false;
+                        }
+                    });
+                    return btn;
+                }
+
+                // Download a GitHub directory recursively
+                async function downloadDirectory(remoteDir, localDir) {
+                    fs.mkdirSync(localDir, { recursive: true });
+                    const res = await fetch(`${apiBase}/${remoteDir}?ref=${branch}`);
+                    if (!res.ok) throw new Error(`Failed to list ${remoteDir}: ${res.status}`);
+                    const items = await res.json();
+                    for (const item of items) {
+                        const localPath = path.join(localDir, item.name);
+                        const remotePath = `${remoteDir}/${item.name}`;
+                        if (item.type === "dir") {
+                            await downloadDirectory(remotePath, localPath);
+                        } else if (item.type === "file") {
+                            const fileRes = await fetch(`${rawBase}/${remotePath}`);
+                            if (!fileRes.ok) continue;
+                            const data = await fileRes.arrayBuffer();
+                            fs.writeFileSync(localPath, Buffer.from(data));
+                        }
+                    }
+                }
+
+                // Install dependencies for a module (requires manifest.json)
+                async function installModuleDependencies(modulePath) {
+                    const manifestPath = path.join(modulePath, "manifest.json");
+                    if (!fs.existsSync(manifestPath)) return;
+
+                    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+                    const dependencies = manifest.dependencies || {};
+                    if (Object.keys(dependencies).length === 0) return;
+
+                    // 1) Create top-level deps folder
+                    const depsRoot = path.join(modulePath, "deps");
+                    fs.mkdirSync(depsRoot, { recursive: true });
+
+                    // 2) Determine system architecture key
+                    //    os.arch() returns "x64" or "arm64".
+                    const archMap = { x64: "x86_64", arm64: "arm64" };
+                    const sysArch = archMap[os.arch()] || os.arch();
+
+                    // 3) Download dependencies
+                    for (const [depName, builds] of Object.entries(dependencies)) {
+                        const depDir = path.join(depsRoot, depName);
+                        fs.mkdirSync(depDir, { recursive: true });
+
+                        // Pick "universal" if present, else the matching arch
+                        const key = builds.universal ? "universal" : sysArch;
+                        if (!builds[key]) {
+                            throw new Error(
+                                `No build for "${depName}" matching arch "${sysArch}"` +
+                                    (builds.universal ? ", but universal is available" : "")
+                            );
+                        }
+                        const { link, unzip } = builds[key];
+
+                        // Download the archive
+                        const res = await fetch(link);
+                        if (!res.ok) {
+                            throw new Error(`Failed to download ${depName} from ${link}: ${res.status}`);
+                        }
+                        const buf = Buffer.from(await res.arrayBuffer());
+                        const fileName = path.basename(new URL(link).pathname);
+                        const archivePath = path.join(depDir, fileName);
+                        fs.writeFileSync(archivePath, buf);
+
+                        // If requested, unzip and remove the .zip
+                        if (unzip) {
+                            await new Promise((resolve, reject) => {
+                                fs.createReadStream(archivePath)
+                                    .pipe(unzipper.Extract({ path: depDir }))
+                                    .on("close", resolve)
+                                    .on("error", reject);
+                            });
+                            fs.rmSync(archivePath);
+                        }
+                    }
+
+                    // 4) Set permissions
+                    // Set xattr to remove quarantine flags (apple why make this so hard?)
+                    exec(`xattr -cr "${depsRoot}"`, (err) => {
+                        if (err) {
+                            alert(`Failed to set xattr for ${depsRoot}:`, err);
+                        } else {
+                            console.log(`Set xattr for ${depsRoot}`);
+                        }
+                    });
+                    // Set permissions to 700
+                    // This is necessary for executables to run properly
+                    exec(`chmod -R 700 "${depsRoot}"`, (err) => {
+                        if (err) {
+                            alert(`Failed to set permissions for ${depsRoot}:`, err);
+                        } else {
+                            console.log(`Set permissions for ${depsRoot}`);
+                        }
+                    });
+                }
+
+                // Install by folder name
+                async function installModule(folder) {
+                    const remoteRoot = `modules/${folder}`;
+                    const localRoot = path.join(modulesDir, folder);
+                    await downloadDirectory(remoteRoot, localRoot);
+                    if (fs.existsSync(localRoot)) {
+                        await installModuleDependencies(localRoot);
+                    }
+                }
+
+                // Uninstall by folder name
+                function uninstallModule(folder) {
+                    const localRoot = path.join(modulesDir, folder);
+                    if (fs.existsSync(localRoot)) {
+                        fs.rmSync(localRoot, { recursive: true, force: true });
+                    }
+                }
+
+                // Build table of modules and action buttons
+                function renderTable(mods, installed) {
+                    const container = document.getElementById("modules-container");
+                    container.innerHTML = "";
+                    if (!mods.length) {
+                        container.innerHTML = "<p>No modules found.</p>";
+                        return;
+                    }
+
+                    const table = document.createElement("table");
+                    table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Name</th><th>Version</th>
+            <th>Author</th><th>Description</th>
+            <th>Action</th>
+          </tr>
+        </thead>`;
+                    const tbody = document.createElement("tbody");
+
+                    mods.forEach((m) => {
+                        const tr = document.createElement("tr");
+                        [m.name, m.version, m.author, m.description].forEach((text) => {
+                            const td = document.createElement("td");
+                            td.textContent = text;
+                            tr.appendChild(td);
+                        });
+                        const actionTd = document.createElement("td");
+                        const btn = installed.has(m.folder)
+                            ? makeUninstallButton(m.folder)
+                            : makeInstallButton(m.folder);
+                        actionTd.appendChild(btn);
+                        tr.appendChild(actionTd);
+                        tbody.appendChild(tr);
+                    });
+
+                    table.appendChild(tbody);
+                    container.appendChild(table);
+                }
+
+                // Kick off initial load
+                fetchModules();
+            })();
+        </script>
+    </body>
+</html>
