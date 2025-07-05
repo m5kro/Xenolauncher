@@ -23,6 +23,8 @@
                 const fs = require("fs");
                 const path = require("path");
                 const os = require("os");
+                const unzipper = require("unzipper");
+                const { exec } = require("child_process");
 
                 const settingsPath = path.join(
                     os.homedir(),
@@ -132,6 +134,9 @@
                     btn.className = "secondary-button";
                     btn.textContent = "Uninstall";
                     btn.addEventListener("click", () => {
+                        if (!confirm("Are you sure you want to uninstall this module?")) {
+                            return;
+                        }
                         btn.disabled = true;
                         btn.textContent = "Uninstalling…";
                         try {
@@ -166,11 +171,89 @@
                     }
                 }
 
+                // Install dependencies for a module (requires manifest.json)
+                async function installModuleDependencies(modulePath) {
+                    const manifestPath = path.join(modulePath, "manifest.json");
+                    if (!fs.existsSync(manifestPath)) return;
+
+                    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+                    const dependencies = manifest.dependencies || {};
+                    if (Object.keys(dependencies).length === 0) return;
+
+                    // 1) Create top-level deps folder
+                    const depsRoot = path.join(modulePath, "deps");
+                    fs.mkdirSync(depsRoot, { recursive: true });
+
+                    // 2) Determine system architecture key
+                    //    os.arch() returns "x64" or "arm64".
+                    const archMap = { x64: "x86_64", arm64: "arm64" };
+                    const sysArch = archMap[os.arch()] || os.arch();
+
+                    // 3) Download dependencies
+                    for (const [depName, builds] of Object.entries(dependencies)) {
+                        const depDir = path.join(depsRoot, depName);
+                        fs.mkdirSync(depDir, { recursive: true });
+
+                        // Pick "universal" if present, else the matching arch
+                        const key = builds.universal ? "universal" : sysArch;
+                        if (!builds[key]) {
+                            throw new Error(
+                                `No build for "${depName}" matching arch "${sysArch}"` +
+                                    (builds.universal ? ", but universal is available" : "")
+                            );
+                        }
+                        const { link, unzip } = builds[key];
+
+                        // Download the archive
+                        const res = await fetch(link);
+                        if (!res.ok) {
+                            throw new Error(`Failed to download ${depName} from ${link}: ${res.status}`);
+                        }
+                        const buf = Buffer.from(await res.arrayBuffer());
+                        const fileName = path.basename(new URL(link).pathname);
+                        const archivePath = path.join(depDir, fileName);
+                        fs.writeFileSync(archivePath, buf);
+
+                        // If requested, unzip and remove the .zip
+                        if (unzip) {
+                            await new Promise((resolve, reject) => {
+                                fs.createReadStream(archivePath)
+                                    .pipe(unzipper.Extract({ path: depDir }))
+                                    .on("close", resolve)
+                                    .on("error", reject);
+                            });
+                            fs.rmSync(archivePath);
+                        }
+                    }
+
+                    // 4) Set permissions
+                    // Set xattr to remove quarantine flags (apple why make this so hard?)
+                    exec(`xattr -cr "${depsRoot}"`, (err) => {
+                        if (err) {
+                            alert(`Failed to set xattr for ${depsRoot}:`, err);
+                        } else {
+                            console.log(`Set xattr for ${depsRoot}`);
+                        }
+                    });
+                    // Set permissions to 700
+                    // This is necessary for executables to run properly
+                    exec(`chmod -R 700 "${depsRoot}"`, (err) => {
+                        if (err) {
+                            alert(`Failed to set permissions for ${depsRoot}:`, err);
+                        } else {
+                            console.log(`Set permissions for ${depsRoot}`);
+                        }
+                    });
+                }
+
                 // Install by folder name
                 async function installModule(folder) {
                     const remoteRoot = `modules/${folder}`;
                     const localRoot = path.join(modulesDir, folder);
                     await downloadDirectory(remoteRoot, localRoot);
+                    if (fs.existsSync(localRoot)) {
+                        await installModuleDependencies(localRoot);
+                    }
                 }
 
                 // Uninstall by folder name

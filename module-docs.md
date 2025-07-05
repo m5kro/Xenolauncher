@@ -111,6 +111,6 @@ const launch = (gamePath, gameArgs) => { // <-- REQUIRED
             console.log(stdout);
         });
     }
-}
+};
 exports.launch = launch; // <-- REQUIRED
 ```

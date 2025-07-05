@@ -141,48 +141,50 @@
 
             /**
              * Finds a subfolder in ~/Library/Application Support/Xenolauncher/modules/
-             * whose manifest.json “name” matches gameEngine, requires its launcher.js,
+             * whose “name” matches gameEngine, requires its launcher.js,
              * and calls launch(gamePath, gameArgs).
              */
             const launchWithEngine = (game) => {
-                const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
-                if (!fs.existsSync(modulesDir)) {
-                    return alert("Modules folder not found.");
+                const modulePath = path.join(
+                    os.homedir(),
+                    "Library",
+                    "Application Support",
+                    "Xenolauncher",
+                    "modules",
+                    game.gameEngine
+                );
+
+                if (!fs.existsSync(modulePath) || !fs.statSync(modulePath).isDirectory()) {
+                    return alert(`Module not found for engine “${game.gameEngine}.”`);
                 }
 
-                const folders = fs
-                    .readdirSync(modulesDir, { withFileTypes: true })
-                    .filter((f) => f.isDirectory())
-                    .map((f) => f.name);
-
-                for (const folder of folders) {
-                    const manifestPath = path.join(modulesDir, folder, "manifest.json");
-                    if (!fs.existsSync(manifestPath)) continue;
-                    let manifest;
-                    try {
-                        manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-                    } catch (e) {
-                        console.warn(`Invalid JSON in ${manifestPath}`, e);
-                        continue;
-                    }
-
-                    if (manifest.name === game.gameEngine) {
-                        const launcherPath = path.join(modulesDir, folder, "launcher.js");
-                        if (!fs.existsSync(launcherPath)) {
-                            return alert(`launcher.js not found for engine “${game.gameEngine}”.`);
-                        }
-                        try {
-                            const { launch } = require(launcherPath);
-                            launch(game.gamePath, game.gameArgs);
-                        } catch (e) {
-                            console.error(`Error launching with ${game.gameEngine}:`, e);
-                            alert(`Failed to launch: ${e.message}`);
-                        }
-                        return;
-                    }
+                // Read and validate manifest.json (not used at the moment, but could be useful for future features)
+                const manifestPath = path.join(modulePath, "manifest.json");
+                if (!fs.existsSync(manifestPath)) {
+                    return alert(`manifest.json not found for engine “${game.gameEngine}.”`);
                 }
 
-                alert(`No module found matching engine “${game.gameEngine}.”`);
+                let manifest;
+                try {
+                    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+                } catch (e) {
+                    console.warn(`Invalid JSON in ${manifestPath}`, e);
+                    return alert(`Invalid manifest for engine “${game.gameEngine}.”`);
+                }
+
+                // Load and call the launcher
+                const launcherPath = path.join(modulePath, "launcher.js");
+                if (!fs.existsSync(launcherPath)) {
+                    return alert(`launcher.js not found for engine “${game.gameEngine}.”`);
+                }
+
+                try {
+                    const { launch } = require(launcherPath);
+                    launch(game.gamePath, game.gameArgs);
+                } catch (e) {
+                    console.error(`Error launching with ${game.gameEngine}:`, e);
+                    alert(`Failed to launch: ${e.message}`);
+                }
             };
 
             // Watch for changes in the games.json file
