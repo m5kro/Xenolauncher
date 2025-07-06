@@ -188,7 +188,7 @@
                 // Set ownership to the current user
                 exec(`chown -R "${os.userInfo().uid}" "${gameFolder}"`, (err) => {
                     if (err) {
-                        alert(`Failed to change ownership for ${gameFolder}:`, err);
+                        console.log(`Failed to change ownership for ${gameFolder}:`, err);
                     } else {
                         console.log(`Changed ownership for ${gameFolder}`);
                     }
@@ -196,7 +196,7 @@
                 // Set xattr to remove quarantine flags
                 exec(`xattr -cr "${gameFolder}"`, (err) => {
                     if (err) {
-                        alert(`Failed to set xattr for ${gameFolder}:`, err);
+                        console.log(`Failed to set xattr for ${gameFolder}:`, err);
                     } else {
                         console.log(`Set xattr for ${gameFolder}`);
                     }
@@ -204,7 +204,7 @@
                 // Set permissions to 700 
                 exec(`chmod -R 700 "${gameFolder}"`, (err) => {
                     if (err) {
-                        alert(`Failed to set permissions for ${gameFolder}:`, err);
+                        console.log(`Failed to set permissions for ${gameFolder}:`, err);
                     } else {
                         console.log(`Set permissions for ${gameFolder}`);
                     }
