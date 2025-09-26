@@ -28,6 +28,7 @@ Some of these can still be used with wine<br>
 
 # Features
 1. Dark mode
+2. Search bar
 
 # Planned Features (No Particular Order)
 1. Auto Read Game Folders
@@ -35,10 +36,9 @@ Some of these can still be used with wine<br>
 3. Pull from game database
 4. Pull settings from database
 5. Autodetect game type
-6. Search bar
-7. Categories/Tags
-8. Check for updates
-9. Better error correction
+6. Categories/Tags
+7. Check for updates
+8. Better error correction
 
 # How to Build
 1. Install nodejs and npm through your preffered method (nodejs website or brew is recommended)
