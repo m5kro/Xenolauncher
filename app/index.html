@@ -10,7 +10,17 @@
     <body>
         <main class="content">
             <div class="header">
-                <h1>Welcome to Xenolauncher!</h1>
+                <div class="search-wrap">
+                    <input
+                        id="searchInput"
+                        class="search-input"
+                        type="text"
+                        placeholder="Search games…"
+                        aria-label="Search games"
+                        autocomplete="off"
+                    />
+                </div>
+                <h1>No Games Found!</h1>
             </div>
             <div id="gamesGrid" class="games-grid"></div>
         </main>
@@ -26,6 +36,9 @@
             const path = require("path");
             const os = require("os");
             const { exec } = require("child_process");
+
+            let allGames = {};
+            let currentQuery = "";
 
             const currentVersion = "0.4.0";
             const settingsPath = path.join(
@@ -184,7 +197,6 @@
                     gameFolder = path.dirname(game.gamePath);
                 }
 
-
                 // Set ownership to the current user
                 exec(`chown -R "${os.userInfo().uid}" "${gameFolder}"`, (err) => {
                     if (err) {
@@ -201,7 +213,7 @@
                         console.log(`Set xattr for ${gameFolder}`);
                     }
                 });
-                // Set permissions to 700 
+                // Set permissions to 700
                 exec(`chmod -R 700 "${gameFolder}"`, (err) => {
                     if (err) {
                         console.log(`Failed to set permissions for ${gameFolder}:`, err);
@@ -225,6 +237,23 @@
                 }
             };
 
+            // Filter games based on the search query
+            const filterGames = (query) => {
+                currentQuery = (query || "").trim().toLowerCase();
+                if (!currentQuery) {
+                    renderGamesGrid(allGames);
+                    return;
+                }
+                const filtered = {};
+                for (const [id, game] of Object.entries(allGames)) {
+                    const title = (game.gameTitle || "").toLowerCase();
+                    if (title.includes(currentQuery)) {
+                        filtered[id] = game; // preserve original IDs
+                    }
+                }
+                renderGamesGrid(filtered);
+            };
+
             // Watch for changes in the games.json file
             const watchGamesFile = () => {
                 if (!fs.existsSync(gamesPath)) {
@@ -234,8 +263,8 @@
                 fs.watch(gamesPath, (eventType) => {
                     if (eventType === "change") {
                         // Reload the games and re-render the grid
-                        const updatedGames = loadGames();
-                        renderGamesGrid(updatedGames);
+                        allGames = loadGames(); // refresh the full list
+                        filterGames(currentQuery); // re-apply filter to new data
                     }
                 });
             };
@@ -248,17 +277,15 @@
                 gamesGrid.innerHTML = ""; // Clear existing content
 
                 if (Object.keys(games).length === 0) {
-                    // Show header if no games are present
-                    header.style.display = "block";
+                    header.style.display = "block"; // Show header if no games
                 } else {
-                    // Hide header if games are present
-                    header.style.display = "none";
+                    header.style.display = "none"; // Hide header if games exist
 
-                    Object.values(games).forEach((game, index) => {
-                        // Create a container for each game
+                    // IMPORTANT: iterate entries so we keep the original gameId keys
+                    for (const [id, game] of Object.entries(games)) {
                         const gameContainer = document.createElement("div");
                         gameContainer.className = "game-container";
-                        gameContainer.dataset.gameId = index + 1;
+                        gameContainer.dataset.gameId = id;
 
                         // Create the game box
                         const gameBox = document.createElement("div");
@@ -292,9 +319,9 @@
                         const optionsMenu = document.createElement("div");
                         optionsMenu.className = "options-menu";
                         optionsMenu.innerHTML = `
-              <button class="settings-option">Settings</button>
-              <button class="delete-option">Delete</button>
-            `;
+                    <button class="settings-option">Settings</button>
+                    <button class="delete-option">Delete</button>
+                `;
 
                         // Append the title and options button to the title container
                         titleContainer.appendChild(title);
@@ -335,9 +362,9 @@
                                 optionsMenu.classList.remove("show");
                             }
                         });
-                    });
+                    }
                 }
-                bindDeleteButtons(); // Re-bind delete buttons
+                bindDeleteButtons();
             };
 
             // Format the title to be at most 18 characters long with 9 per row
@@ -380,6 +407,7 @@
             // Initialize app
             const init = () => {
                 const games = loadGames();
+                allGames = games;
                 renderGamesGrid(games);
 
                 const settings = loadSettings();
@@ -401,6 +429,10 @@
                 document.getElementById("moduleManagerButton").addEventListener("click", () => {
                     openSubwindow("module-manager.html");
                 });
+
+                // Search: live-filter as the user types
+                const searchInput = document.getElementById("searchInput");
+                searchInput.addEventListener("input", (e) => filterGames(e.target.value));
 
                 watchGamesFile();
             };

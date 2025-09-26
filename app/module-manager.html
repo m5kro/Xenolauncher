@@ -7,7 +7,20 @@
         <link rel="stylesheet" href="main.css" />
     </head>
     <body>
-        <h1>Engine Module Manager</h1>
+        <div class="header">
+            <h1>Engine Module Manager</h1>
+
+            <div class="search-wrap">
+                <input
+                    id="moduleSearch"
+                    class="search-input"
+                    type="text"
+                    placeholder="Search modules…"
+                    aria-label="Search modules"
+                    autocomplete="off"
+                />
+            </div>
+        </div>
 
         <div id="modules-container">
             <!-- Modules will be injected here -->
@@ -25,6 +38,11 @@
                 const os = require("os");
                 const unzipper = require("unzipper");
                 const { exec } = require("child_process");
+
+                let allModules = [];          // full, unfiltered list
+                let installedSet = new Set(); // installed folders
+                let moduleQuery = "";         // current search query
+
 
                 const settingsPath = path.join(
                     os.homedir(),
@@ -65,6 +83,21 @@
 
                 document.getElementById("refresh-btn").addEventListener("click", fetchModules);
                 document.getElementById("closeButton").addEventListener("click", () => nw.Window.get().close());
+                document.getElementById("moduleSearch").addEventListener("input", (e) => filterModules(e.target.value));
+
+                function filterModules(q) {
+                moduleQuery = (q || "").trim().toLowerCase();
+                const filtered = !moduleQuery
+                    ? allModules
+                    : allModules.filter((m) => {
+                        const haystack = [m.name, m.version, m.author, m.description, m.folder]
+                        .filter(Boolean)
+                        .join(" ")
+                        .toLowerCase();
+                        return haystack.includes(moduleQuery);
+                    });
+                renderTable(filtered, installedSet);
+                }
 
                 // Fetch remote modules, then render table
                 async function fetchModules() {
@@ -76,12 +109,15 @@
                         const items = await res.json();
                         const dirs = items.filter((i) => i.type === "dir");
                         const manifests = await Promise.all(dirs.map((d) => fetchManifest(d.name)));
-                        const installed = getInstalledModules();
-                        renderTable(manifests, installed);
+
+                        installedSet = getInstalledModules();
+                        // keep a sorted, stable copy
+                        allModules = manifests.sort((a, b) => a.name.localeCompare(b.name));
+
+                        // render using current filter (if any)
+                        filterModules(moduleQuery);
                     } catch (err) {
-                        container.innerHTML = `<p style="color:red;">
-                                 Error loading modules: ${err.message}
-                               </p>`;
+                        container.innerHTML = `<p style="color:red;">Error loading modules: ${err.message}</p>`;
                     }
                 }
 
@@ -269,7 +305,8 @@
                     const container = document.getElementById("modules-container");
                     container.innerHTML = "";
                     if (!mods.length) {
-                        container.innerHTML = "<p>No modules found.</p>";
+                        const msg = allModules.length ? "No matching modules." : "No modules found.";
+                        container.innerHTML = `<p>${msg}</p>`;
                         return;
                     }
 
