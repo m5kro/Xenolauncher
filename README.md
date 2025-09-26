@@ -38,8 +38,7 @@ Some of these can still be used with wine<br>
 6. Search bar
 7. Categories/Tags
 8. Check for updates
-9. Combine CSS files
-10. Better error correction
+9. Better error correction
 
 # How to Build
 1. Install nodejs and npm through your preffered method (nodejs website or brew is recommended)
