@@ -168,6 +168,7 @@ button {
 }
 
 /* --- Footer (fixed action bar) --- */
+/* Footer: layout only */
 .footer {
   position: fixed;
   bottom: 0;
@@ -181,22 +182,11 @@ button {
 }
 .footer button {
   margin: 0 10px;
-  /* Use primary palette for prominent footer buttons */
-  background-color: var(--button-bg-color-primary, #61dafb);
-  color: var(--button-text-color-primary, #fff);
-  border: none;
   padding: 10px 20px;
   font-size: 16px;
   border-radius: 5px;
   cursor: pointer;
-  transition: background-color 0.3s;
-}
-.footer button:hover {
-  transform: scale(1.05);
-  background-color: var(--button-hover-bg-color-primary, #21a1f1);
-}
-.footer button:active {
-  transform: scale(0.98);
+  transition: background-color 0.3s, transform 0.1s;
 }
 
 /* --- Index: Games Grid --- */
