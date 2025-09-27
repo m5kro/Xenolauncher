@@ -7,7 +7,7 @@
         <link rel="stylesheet" href="main.css" />
     </head>
     <body>
-        <h2>Edit Game</h2>
+        <h2 id="pageTitle">Game Settings</h2>
 
         <div class="form-item">
             <label for="gameTitle">Game Title:</label>
@@ -53,6 +53,7 @@
             const os = require("os");
             const { openFile } = require("macos-open-file-dialog");
 
+            // Paths
             const settingsPath = path.join(
                 os.homedir(),
                 "Library",
@@ -65,6 +66,7 @@
 
             const moduleManifests = {};
 
+            // Loaders
             function loadSettings() {
                 if (!fs.existsSync(settingsPath)) return { darkTheme: false };
                 try {
@@ -73,7 +75,6 @@
                     return { darkTheme: false };
                 }
             }
-
             function loadGames() {
                 if (!fs.existsSync(gamesPath)) return {};
                 try {
@@ -82,20 +83,15 @@
                     return {};
                 }
             }
-
-            function saveGame(gameId, data) {
-                const games = loadGames();
-                games[gameId] = data;
-                try {
-                    fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), "utf8");
-                    alert("Game settings saved!");
-                } catch (e) {
-                    console.error("Error saving game:", e);
-                    alert("Failed to save game: " + e.message);
-                }
+            function saveGames(games) {
+                fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), "utf8");
             }
 
-            // Load module manifests from the modules directory
+            // Apply theme early
+            const settings = loadSettings();
+            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
+
+            // Module manifests
             function loadModuleManifests() {
                 if (!fs.existsSync(modulesDir)) return;
                 fs.readdirSync(modulesDir, { withFileTypes: true })
@@ -106,11 +102,10 @@
                         try {
                             moduleManifests[d.name] = JSON.parse(fs.readFileSync(mf, "utf8"));
                         } catch (e) {
-                            console.error(`Bad manifest in ${d.name}:`, e);
+                            console.error("Bad manifest in", d.name, e);
                         }
                     });
             }
-
             function populateEngineDropdown() {
                 const sel = document.getElementById("gameEngine");
                 Object.entries(moduleManifests).forEach(([key, m]) => {
@@ -121,7 +116,7 @@
                 });
             }
 
-            // Build options UI based on selected engine
+            // Options UI
             function buildOptionsUI() {
                 const engine = document.getElementById("gameEngine").value;
                 const optsDiv = document.getElementById("options");
@@ -163,6 +158,7 @@
                             input.step = "any";
                             input.value = def.default != null ? def.default : "";
                         } else {
+                            // string/other
                             input.type = "text";
                             input.value = def.default || "";
                         }
@@ -178,60 +174,51 @@
             // File pickers
             document.getElementById("selectExe").addEventListener("click", async () => {
                 const p = await openFile("Select a game executable", ["exe", "swf", "jar", "html", "apk", "py", "app"]);
-                document.getElementById("exePath").value = p;
+                if (p) document.getElementById("exePath").value = p;
             });
             document.getElementById("selectIcon").addEventListener("click", async () => {
                 const p = await openFile("Select a game icon", ["png", "jpg", "jpeg", "ico", "gif"]);
-                document.getElementById("iconPath").value = p;
+                if (p) document.getElementById("iconPath").value = p;
             });
-
-            // Engine change
             document.getElementById("gameEngine").addEventListener("change", buildOptionsUI);
 
-            // Apply theme
-            const settings = loadSettings();
-            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
-
-            // Init
+            // Init dropdowns
             loadModuleManifests();
             populateEngineDropdown();
 
-            // Load existing game
+            // Determine mode (add vs edit)
             const urlParams = new URLSearchParams(window.location.search);
-            const gameId = urlParams.get("gameId");
+            const gameId = urlParams.get("gameId"); // if present -> edit
             const games = loadGames();
-            const gameData = games[gameId];
-            if (gameData) {
-                document.getElementById("gameTitle").value = gameData.gameTitle;
-                document.getElementById("exePath").value = gameData.gamePath;
-                document.getElementById("iconPath").value = gameData.iconPath;
-                document.getElementById("gameEngine").value = gameData.gameEngine;
+            const editing = !!(gameId && games[gameId]);
+            document.getElementById("pageTitle").textContent = editing ? "Edit Game" : "Add Game";
 
+            if (editing) {
+                const gameData = games[gameId];
+                document.getElementById("gameTitle").value = gameData.gameTitle || "";
+                document.getElementById("exePath").value = gameData.gamePath || "";
+                document.getElementById("iconPath").value = gameData.iconPath || "";
+                document.getElementById("gameEngine").value = gameData.gameEngine || "";
                 buildOptionsUI();
                 const defs = moduleManifests[gameData.gameEngine]?.gameArgs || {};
                 Object.entries(defs).forEach(([key, def]) => {
                     const el = document.getElementById(`arg-${key}`);
                     if (!el) return;
                     const saved = gameData.gameArgs?.[key];
-                    if (def.type === "boolean") {
-                        el.checked = typeof saved === "boolean" ? saved : !!def.default;
-                    } else {
-                        el.value = saved != null ? saved : def.default || "";
-                    }
+                    if (def.type === "boolean") el.checked = typeof saved === "boolean" ? saved : !!def.default;
+                    else el.value = saved != null ? saved : def.default || "";
                 });
             }
 
-            // Save
+            // Save handler: upsert
             document.getElementById("saveGame").addEventListener("click", () => {
                 const title = document.getElementById("gameTitle").value.trim();
                 const exe = document.getElementById("exePath").value.trim();
                 const icon = document.getElementById("iconPath").value.trim();
                 const engine = document.getElementById("gameEngine").value;
-                if (!title || !exe || !engine) {
-                    return alert("Please fill in all fields.");
-                }
+                if (!title || !exe || !engine) return alert("Please fill in all fields.");
 
-                const defs = moduleManifests[engine].gameArgs || {};
+                const defs = moduleManifests[engine]?.gameArgs || {};
                 const settingsObj = {};
                 Object.entries(defs).forEach(([key, def]) => {
                     const el = document.getElementById(`arg-${key}`);
@@ -242,7 +229,7 @@
                     else settingsObj[key] = el.value;
                 });
 
-                const updatedGameData = {
+                const newData = {
                     gameTitle: title,
                     gamePath: exe,
                     iconPath: icon,
@@ -250,7 +237,30 @@
                     gameArgs: settingsObj,
                 };
 
-                saveGame(gameId, updatedGameData);
+                const gamesNow = loadGames();
+                if (editing) {
+                    gamesNow[gameId] = newData;
+                    try {
+                        saveGames(gamesNow);
+                        alert("Game settings saved!");
+                    } catch (e) {
+                        console.error("Error saving game:", e);
+                        alert("Failed to save game: " + e.message);
+                    }
+                } else {
+                    const nextID =
+                        Object.keys(gamesNow)
+                            .map((n) => parseInt(n, 10))
+                            .reduce((m, c) => Math.max(m, isNaN(c) ? 0 : c), 0) + 1;
+                    gamesNow[nextID] = newData;
+                    try {
+                        saveGames(gamesNow);
+                        alert("Game added!");
+                    } catch (e) {
+                        console.error("Error saving game:", e);
+                        alert("Failed to save game: " + e.message);
+                    }
+                }
                 nw.Window.get().close();
             });
 
