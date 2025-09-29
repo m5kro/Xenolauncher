@@ -40,13 +40,19 @@ Some of these can still be used with wine<br>
 7. Check for updates
 8. Better error correction
 
-# How to Build
-1. Install nodejs and npm through your preffered method (nodejs website or brew is recommended)
-2. Clone the repo `git clone https://github.com/m5kro/Xenolauncher`
-3. Enter the app folder `cd Xenolauncher/app`
-4. Install node modules `npm install`
-5. [Download the nwjs app](https://nwjs.io/)
-6. Right click the nwjs app and press show package contents
-7. Go to Contents/Resources
-8. Create a folder called app.nw
-9. Copy everything inside the app folder from the repo into the app.nw folder
+# License
+## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
+**The following terms apply only to the launcher. Modules have seperate Licenses.**<br>
+<br>
+ You are free to:<br>
+    **Share** — copy and redistribute the material in any medium or format<br>
+    **Adapt** — remix, transform, and build upon the material<br>
+    The licensor cannot revoke these freedoms as long as you follow the license terms.<br>
+<br>
+
+Under the following terms:<br>
+    **Attribution** — You must give [appropriate credit](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-appropriate-credit) , provide a [link to the license](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en), and [indicate if changes were made](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-indicate-changes) . You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.<br>
+    **NonCommercial** — You may not use the material for [commercial purposes](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-commercial-purposes) .<br>
+    **ShareAlike** — If you remix, transform, or build upon the material, you must distribute your contributions under the [same license](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-same-license) as the original.<br>
+    **No additional restrictions** — You may not apply legal terms or [technological measures](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-technological-measures) that legally restrict others from doing anything the license permits.<br>
+
