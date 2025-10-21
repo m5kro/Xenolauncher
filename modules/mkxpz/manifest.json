@@ -3,5 +3,9 @@
     "version": "0.1.0",
     "description": "A module to launch MKXP-Z native games like RPG Maker XP, VX, and VX Ace. (Not ready yet)",
     "author": "m5kro",
-    "license": "CC BY-NC-SA 4.0"
+    "license": "CC BY-NC-SA 4.0",
+    "autodetect": {
+        "files": ["Game.ini", "Data", "Graphics", "Audio"],
+        "all_required": true
+    }
 }

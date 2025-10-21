@@ -15,5 +15,9 @@
                 "unzip": true
             }
         }
+    },
+    "autodetect": {
+        "files": ["nw.dll"],
+        "all_required": true
     }
 }

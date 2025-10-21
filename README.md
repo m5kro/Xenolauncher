@@ -32,7 +32,7 @@ Some of these can still be used with wine<br>
 
 # Planned Features (No Particular Order)
 1. Auto Read Game Folders
-2. Add Icons
+2. Auto Add Icons
 3. Pull from game database
 4. Pull settings from database
 5. Autodetect game type
@@ -44,6 +44,7 @@ Some of these can still be used with wine<br>
 ## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
 **The following terms apply only to the launcher. Modules have seperate Licenses.**<br>
 <br>
+
  You are free to:<br>
     **Share** — copy and redistribute the material in any medium or format<br>
     **Adapt** — remix, transform, and build upon the material<br>

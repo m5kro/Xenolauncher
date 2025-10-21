@@ -10,5 +10,10 @@
             "label": "Force Launch with Rosetta",
             "default": false
         }
+    },
+    "autodetect": {
+        "extension": "app",
+        "files": ["Contents/MacOS", "Contents/Info.plist"],
+        "all_required": false
     }
 }

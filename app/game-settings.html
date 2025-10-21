@@ -66,7 +66,12 @@
 
             const moduleManifests = {};
 
-            // Loaders
+            const __DEBUG_AUTODETECT = true;
+            const dbg = (...args) => {
+                if (__DEBUG_AUTODETECT) console.log("[AutoDetect]", ...args);
+            };
+
+            // ---------- Loaders ----------
             function loadSettings() {
                 if (!fs.existsSync(settingsPath)) return { darkTheme: false };
                 try {
@@ -91,7 +96,7 @@
             const settings = loadSettings();
             document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
 
-            // Module manifests
+            // ---------- Module manifests ----------
             function loadModuleManifests() {
                 if (!fs.existsSync(modulesDir)) return;
                 fs.readdirSync(modulesDir, { withFileTypes: true })
@@ -116,9 +121,10 @@
                 });
             }
 
-            // Options UI
+            // ---------- Options UI ----------
             function buildOptionsUI() {
                 const engine = document.getElementById("gameEngine").value;
+                dbg("buildOptionsUI", { engine });
                 const optsDiv = document.getElementById("options");
                 const container = document.getElementById("engineOptions");
                 container.innerHTML = "";
@@ -171,10 +177,147 @@
                 optsDiv.style.display = Object.keys(defs).length ? "block" : "none";
             }
 
-            // File pickers
+            // ---------- Autodetect helpers ----------
+            function normalizeExt(ext) {
+                if (!ext) return "";
+                return String(ext).replace(/^\.+/, "").toLowerCase();
+            }
+            function getPathExtLower(p) {
+                if (!p) return "";
+                let pp = p.trim();
+                // remove trailing slash for bundles like .app/
+                pp = pp.replace(/[\\/]+$/, "");
+                const base = path.basename(pp);
+                const idx = base.lastIndexOf(".");
+                return idx >= 0 ? base.slice(idx + 1).toLowerCase() : "";
+            }
+            function isAppBundlePath(p) {
+                return normalizeExt(getPathExtLower(p)) === "app";
+            }
+            function gameDirForFiles(exe) {
+                // If it's an .app bundle, look inside the bundle; otherwise, look beside the file
+                if (isAppBundlePath(exe)) {
+                    return exe.replace(/[\\/]+$/, "");
+                }
+                return path.dirname(exe);
+            }
+
+            function detectEngineForPath(exe) {
+                if (!exe) return null;
+                const extOnPath = normalizeExt(getPathExtLower(exe));
+                const dir = gameDirForFiles(exe);
+
+                dbg("detectEngineForPath", { exe, extOnPath, dir });
+
+                let bestKey = null;
+                let bestScore = 0;
+                let bestTie = { fileMatches: -1, extMatch: false };
+                const strongMatches = []; // all_required satisfied
+
+                for (const [key, manifest] of Object.entries(moduleManifests)) {
+                    const ad = manifest.autodetect;
+                    dbg("checking module", key, "has autodetect?", !!ad);
+                    if (!ad) continue; // optional
+
+                    const wantExt = normalizeExt(ad.extension || "");
+                    const hasExtRule = !!wantExt;
+                    const extMatch = hasExtRule ? wantExt === extOnPath : false;
+
+                    const files = Array.isArray(ad.files) ? ad.files : [];
+                    let fileMatches = 0;
+                    let fileTotal = files.length;
+                    if (fileTotal > 0) {
+                        for (const rel of files) {
+                            const probe = path.join(dir, rel);
+                            if (fs.existsSync(probe)) fileMatches++;
+                        }
+                    }
+                    const allRequired = !!ad.all_required;
+
+                    dbg("module facts", { key, wantExt, extMatch, files, fileMatches, allRequired });
+
+                    // Evaluate
+                    if (allRequired) {
+                        const needExt = hasExtRule ? extMatch : true;
+                        const needFiles = fileTotal > 0 ? fileMatches === fileTotal : true;
+                        if (needExt && needFiles) {
+                            strongMatches.push({ key, fileMatches, extMatch });
+                        }
+                        continue; // skip scoring path for all_required
+                    }
+
+                    // Score-based selection (weights: ext=1, files up to 1)
+                    let score = 0;
+                    if (hasExtRule && extMatch) score += 1;
+                    if (fileTotal > 0) score += fileMatches / fileTotal; // [0..1]
+
+                    dbg("score", { key, score, hasExtRule, extMatch, fileMatches, fileTotal });
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestKey = key;
+                        bestTie = { fileMatches, extMatch };
+                        dbg("new best", { bestKey, bestScore });
+                    } else if (score === bestScore && score > 0) {
+                        // Tie-break: prefer more file matches, then ext match
+                        const better =
+                            fileMatches > bestTie.fileMatches ||
+                            (fileMatches === bestTie.fileMatches && extMatch && !bestTie.extMatch);
+                        if (better) {
+                            bestKey = key;
+                            bestTie = { fileMatches, extMatch };
+                            dbg("new best", { bestKey, bestScore });
+                        }
+                    }
+                }
+
+                if (strongMatches.length === 1) {
+                    dbg("all_required winner", strongMatches[0].key);
+                    dbg("all_required tie, picked", strongMatches[0].key, strongMatches);
+                    return strongMatches[0].key;
+                }
+                if (strongMatches.length > 1) {
+                    // Choose the strongest by fileMatches, then extMatch
+                    strongMatches.sort((a, b) => {
+                        if (b.fileMatches !== a.fileMatches) return b.fileMatches - a.fileMatches;
+                        if (a.extMatch !== b.extMatch) return (b.extMatch ? 1 : 0) - (a.extMatch ? 1 : 0);
+                        return 0;
+                    });
+                    return strongMatches[0].key;
+                }
+
+                const finalKey = bestScore > 0 ? bestKey : null;
+                dbg("fallback winner", { bestKey, bestScore, finalKey });
+                return finalKey;
+            }
+
+            function autodetectEngine() {
+                if (window.__editingMode) {
+                    dbg("autodetect skipped: editing mode");
+                    return;
+                } // don't autodetect when editing
+                const exe = document.getElementById("exePath").value.trim();
+                dbg("autodetect: exe path", exe);
+                if (!exe) return;
+                const key = detectEngineForPath(exe);
+                dbg("autodetect result", { key });
+                if (!key) return;
+                const sel = document.getElementById("gameEngine");
+                // Only set if the option exists
+                const opt = Array.from(sel.options).find((o) => o.value === key);
+                if (opt) {
+                    sel.value = key;
+                    buildOptionsUI();
+                }
+            }
+
+            // ---------- File pickers ----------
             document.getElementById("selectExe").addEventListener("click", async () => {
                 const p = await openFile("Select a game executable", ["exe", "swf", "jar", "html", "apk", "py", "app"]);
-                if (p) document.getElementById("exePath").value = p;
+                if (p) {
+                    document.getElementById("exePath").value = p;
+                    autodetectEngine();
+                }
             });
             document.getElementById("selectIcon").addEventListener("click", async () => {
                 const p = await openFile("Select a game icon", ["png", "jpg", "jpeg", "ico", "gif"]);
@@ -182,15 +325,19 @@
             });
             document.getElementById("gameEngine").addEventListener("change", buildOptionsUI);
 
-            // Init dropdowns
+            // ---------- Init dropdowns ----------
             loadModuleManifests();
             populateEngineDropdown();
+            dbg("manifests loaded", Object.keys(moduleManifests));
 
-            // Determine mode (add vs edit)
+            // ---------- Determine mode (add vs edit) ----------
             const urlParams = new URLSearchParams(window.location.search);
             const gameId = urlParams.get("gameId"); // if present -> edit
             const games = loadGames();
             const editing = !!(gameId && games[gameId]);
+            // expose to autodetect function without needing to pass around
+            window.__editingMode = editing;
+
             document.getElementById("pageTitle").textContent = editing ? "Edit Game" : "Add Game";
 
             if (editing) {
@@ -208,9 +355,14 @@
                     if (def.type === "boolean") el.checked = typeof saved === "boolean" ? saved : !!def.default;
                     else el.value = saved != null ? saved : def.default || "";
                 });
+            } else {
+                // Add mode: wire up live autodetect as the user types/pastes the path
+                const exeInput = document.getElementById("exePath");
+                exeInput.addEventListener("input", () => autodetectEngine());
+                exeInput.addEventListener("change", () => autodetectEngine());
             }
 
-            // Save handler: upsert
+            // ---------- Save handler: upsert ----------
             document.getElementById("saveGame").addEventListener("click", () => {
                 const title = document.getElementById("gameTitle").value.trim();
                 const exe = document.getElementById("exePath").value.trim();
