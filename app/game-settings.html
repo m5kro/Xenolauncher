@@ -219,9 +219,14 @@
                     dbg("checking module", key, "has autodetect?", !!ad);
                     if (!ad) continue; // optional
 
-                    const wantExt = normalizeExt(ad.extension || "");
-                    const hasExtRule = !!wantExt;
-                    const extMatch = hasExtRule ? wantExt === extOnPath : false;
+                    const extListRaw = Array.isArray(ad.extensions)
+                        ? ad.extensions
+                        : ad.extension
+                        ? [ad.extension]
+                        : []; // backward compat
+                    const extList = extListRaw.map(normalizeExt).filter(Boolean);
+                    const hasExtRule = extList.length > 0;
+                    const extMatch = hasExtRule ? extList.includes(extOnPath) : false;
 
                     const files = Array.isArray(ad.files) ? ad.files : [];
                     let fileMatches = 0;
@@ -234,7 +239,7 @@
                     }
                     const allRequired = !!ad.all_required;
 
-                    dbg("module facts", { key, wantExt, extMatch, files, fileMatches, allRequired });
+                    dbg("module facts", { key, extList, extMatch, files, fileMatches, allRequired });
 
                     // Evaluate
                     if (allRequired) {
@@ -313,7 +318,7 @@
 
             // ---------- File pickers ----------
             document.getElementById("selectExe").addEventListener("click", async () => {
-                const p = await openFile("Select a game executable", ["exe", "swf", "jar", "html", "apk", "py", "app"]);
+                const p = await openFile("Select a game executable");
                 if (p) {
                     document.getElementById("exePath").value = p;
                     autodetectEngine();

@@ -12,7 +12,7 @@
         }
     },
     "autodetect": {
-        "extension": "app",
+        "extensions": ["app"],
         "files": ["Contents/MacOS", "Contents/Info.plist"],
         "all_required": false
     }

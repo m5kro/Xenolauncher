@@ -176,7 +176,7 @@
                     return alert(`Module not found for engine “${game.gameEngine}.”`);
                 }
 
-                // Read and validate manifest.json (not used at the moment, but could be useful for future features)
+                // Read and validate manifest.json
                 const manifestPath = path.join(modulePath, "manifest.json");
                 if (!fs.existsSync(manifestPath)) {
                     return alert(`manifest.json not found for engine “${game.gameEngine}.”`);
@@ -230,7 +230,7 @@
 
                 try {
                     const { launch } = require(launcherPath);
-                    launch(game.gamePath, game.gameArgs);
+                    launch(game.gamePath, gameFolder, game.gameArgs);
                 } catch (e) {
                     console.error(`Error launching with ${game.gameEngine}:`, e);
                     alert(`Failed to launch: ${e.message}`);
