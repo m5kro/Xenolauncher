@@ -20,6 +20,11 @@
             <input type="checkbox" id="deletionConfirmationToggle" />
         </div>
 
+        <div class="setting-toggle">
+            <label for="nonInstalledAutodetectToggle">Enable Autodetect for Non-Installed Game Engines</label>
+            <input type="checkbox" id="nonInstalledAutodetectToggle" />
+        </div>
+
         <div class="footer">
             <button id="cancelButton" class="secondary-button">Cancel</button>
             <button id="saveSettings" class="primary-button">Save</button>
@@ -47,10 +52,11 @@
                     return {
                         darkTheme: settings.darkTheme ?? window.matchMedia("(prefers-color-scheme: dark)").matches,
                         deletionConfirmation: settings.deletionConfirmation ?? true,
+                        nonInstalledAutodetect: settings.nonInstalledAutodetect ?? true,
                     };
                 }
                 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-                return { darkTheme: prefersDark, deletionConfirmation: true };
+                return { darkTheme: prefersDark, deletionConfirmation: true, nonInstalledAutodetect: true };
             };
 
             const saveSettings = (settings) => {
@@ -71,12 +77,14 @@
             const settings = loadSettings();
             document.getElementById("darkThemeToggle").checked = settings.darkTheme;
             document.getElementById("deletionConfirmationToggle").checked = settings.deletionConfirmation;
+            document.getElementById("nonInstalledAutodetectToggle").checked = settings.nonInstalledAutodetect;
             applyTheme(settings.darkTheme);
 
             document.getElementById("saveSettings").addEventListener("click", () => {
                 const updatedSettings = {
                     darkTheme: document.getElementById("darkThemeToggle").checked,
                     deletionConfirmation: document.getElementById("deletionConfirmationToggle").checked,
+                    nonInstalledAutodetect: document.getElementById("nonInstalledAutodetectToggle").checked,
                     currentVersion: currentVersion,
                 };
                 saveSettings(updatedSettings);

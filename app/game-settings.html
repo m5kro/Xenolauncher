@@ -65,6 +65,32 @@
             const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
             const autoDetectJsonPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "autodetect.json");
 
+            // ---------- Loaders ----------
+            function loadSettings() {
+                if (!fs.existsSync(settingsPath)) return { darkTheme: false };
+                try {
+                    return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+                } catch {
+                    return { darkTheme: false };
+                }
+            }
+            function loadGames() {
+                if (!fs.existsSync(gamesPath)) return {};
+                try {
+                    return JSON.parse(fs.readFileSync(gamesPath, "utf8"));
+                } catch {
+                    return {};
+                }
+            }
+            function saveGames(games) {
+                fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), "utf8");
+            }
+
+            // Apply theme early
+            const settings = loadSettings();
+            const allowRemoteAutodetect = settings.nonInstalledAutodetect !== false;
+            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
+
             // -------- Remote autodetect (non-installed modules) --------
             let remoteAutodetectMap = {};
             let remoteSyncDone = false;
@@ -156,6 +182,7 @@
 
             // Start background sync with 5s timeout
             async function startAutodetectSyncWithTimeout() {
+                if (!allowRemoteAutodetect) { dbg("remote autodetect sync disabled by settings"); return; }
                 if (remoteSyncDone) return;
                 const timeoutMs = 5000;
                 const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs));
@@ -263,31 +290,6 @@
             const dbg = (...args) => {
                 if (__DEBUG_AUTODETECT) console.log("[AutoDetect]", ...args);
             };
-
-            // ---------- Loaders ----------
-            function loadSettings() {
-                if (!fs.existsSync(settingsPath)) return { darkTheme: false };
-                try {
-                    return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-                } catch {
-                    return { darkTheme: false };
-                }
-            }
-            function loadGames() {
-                if (!fs.existsSync(gamesPath)) return {};
-                try {
-                    return JSON.parse(fs.readFileSync(gamesPath, "utf8"));
-                } catch {
-                    return {};
-                }
-            }
-            function saveGames(games) {
-                fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), "utf8");
-            }
-
-            // Apply theme early
-            const settings = loadSettings();
-            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
 
             // ---------- Module manifests ----------
             function loadModuleManifests() {
@@ -509,7 +511,11 @@
                     }
                 } else {
                     // Try non-installed modules using autodetect.json
-                    tryRemoteAutodetect(exe);
+                    if (allowRemoteAutodetect) {
+                        tryRemoteAutodetect(exe);
+                    } else {
+                        dbg('remote autodetect disabled by settings');
+                    }
                 }
             }
 
@@ -531,9 +537,13 @@
             loadModuleManifests();
             populateEngineDropdown();
             dbg("manifests loaded", Object.keys(moduleManifests));
-            // Load cached remote autodetect map, then kick off async sync with 5s timeout
-            loadAutodetectJson();
-            startAutodetectSyncWithTimeout();
+            // Load cached remote autodetect map, then kick off async sync with 5s timeout (only if enabled)
+            if (allowRemoteAutodetect) {
+                loadAutodetectJson();
+                startAutodetectSyncWithTimeout();
+            } else {
+                dbg("nonInstalledAutodetect disabled via settings");
+            }
 
             // ---------- Determine mode (add vs edit) ----------
             const urlParams = new URLSearchParams(window.location.search);
