@@ -63,6 +63,199 @@
             );
             const gamesPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "games.json");
             const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
+            const autoDetectJsonPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "autodetect.json");
+
+            // -------- Remote autodetect (non-installed modules) --------
+            let remoteAutodetectMap = {};
+            let remoteSyncDone = false;
+
+            function ensureAppSupportDir() {
+                const base = path.dirname(autoDetectJsonPath);
+                try { fs.mkdirSync(base, { recursive: true }); } catch {}
+            }
+
+            // GitHub repo settings (same as Module Manager)
+            const owner = "m5kro";
+            const repo = "Xenolauncher";
+            const branch = "main";
+            const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
+            const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}`;
+
+            function getInstalledModuleFolders() {
+                const installed = new Set();
+                if (!fs.existsSync(modulesDir)) return installed;
+                try {
+                    fs.readdirSync(modulesDir, { withFileTypes: true })
+                        .filter((d) => d.isDirectory())
+                        .forEach((d) => installed.add(d.name));
+                } catch {}
+                return installed;
+            }
+
+            // Copy of Module Manager's fetchManifest adapted for autodetect-only
+            async function fetchManifest(folderName) {
+                const rawUrl = `${rawBase}/modules/${folderName}/manifest.json`;
+                try {
+                    const res = await fetch(rawUrl);
+                    if (!res.ok) throw new Error(`status ${res.status}`);
+                    const json = await res.json();
+                    const ad = json.autodetect || null;
+                    // Normalize extensions to array
+                    let extensions = [];
+                    if (ad) {
+                        const rawExts = Array.isArray(ad.extensions) ? ad.extensions : (ad.extension ? [ad.extension] : []);
+                        extensions = rawExts.map((e) => String(e).replace(/^\.+/, "").toLowerCase()).filter(Boolean);
+                    }
+                    return { folder: folderName, autodetect: ad ? { extensions, files: ad.files || [], all_required: !!ad.all_required } : null };
+                } catch (e) {
+                    return { folder: folderName, autodetect: null };
+                }
+            }
+
+            // Copy of Module Manager's fetchModules adapted to produce autodetect.json map
+            async function fetchModulesForAutodetect() {
+                const res = await fetch(`${apiBase}/modules?ref=${branch}`);
+                if (!res.ok) throw new Error(`GitHub API error ${res.status}`);
+                const items = await res.json();
+                const dirs = items.filter((i) => i.type === "dir");
+                const manifests = await Promise.all(dirs.map((d) => fetchManifest(d.name)));
+                const installed = getInstalledModuleFolders();
+                const map = {};
+                for (const m of manifests) {
+                    if (!m.autodetect) continue; // needs autodetect info
+                    if (installed.has(m.folder)) continue; // ignore installed modules
+                    map[m.folder] = {
+                        ...(m.autodetect.extensions && m.autodetect.extensions.length ? { extensions: m.autodetect.extensions } : {}),
+                        ...(m.autodetect.files && m.autodetect.files.length ? { files: m.autodetect.files } : {}),
+                        ...(typeof m.autodetect.all_required === "boolean" ? { all_required: m.autodetect.all_required } : {}),
+                    };
+                }
+                return map;
+            }
+
+            function saveAutodetectJson(map) {
+                try {
+                    ensureAppSupportDir();
+                    fs.writeFileSync(autoDetectJsonPath, JSON.stringify(map, null, 2), "utf8");
+                    dbg("wrote autodetect.json", autoDetectJsonPath);
+                } catch (e) {
+                    console.error("Failed to write autodetect.json", e);
+                }
+            }
+
+            function loadAutodetectJson() {
+                try {
+                    if (!fs.existsSync(autoDetectJsonPath)) return;
+                    const obj = JSON.parse(fs.readFileSync(autoDetectJsonPath, "utf8"));
+                    remoteAutodetectMap = obj && typeof obj === "object" ? obj : {};
+                    dbg("loaded autodetect.json keys", Object.keys(remoteAutodetectMap));
+                } catch (e) {
+                    console.warn("Failed to read autodetect.json", e);
+                }
+            }
+
+            // Start background sync with 5s timeout
+            async function startAutodetectSyncWithTimeout() {
+                if (remoteSyncDone) return;
+                const timeoutMs = 5000;
+                const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs));
+                try {
+                    const map = await Promise.race([fetchModulesForAutodetect(), timer]);
+                    remoteAutodetectMap = map;
+                    saveAutodetectJson(map);
+                    remoteSyncDone = true;
+                    dbg("autodetect sync complete", Object.keys(map));
+                    // If user already has an exe path and no engine set, try remote detect now
+                    const exe = (document.getElementById("exePath")?.value || "").trim();
+                    const sel = document.getElementById("gameEngine");
+                    if (!window.__editingMode && exe && sel && !sel.value) {
+                        tryRemoteAutodetect(exe);
+                    }
+                } catch (e) {
+                    dbg("autodetect sync failed or timed out", e.message || e);
+                }
+            }
+
+            function detectEngineFromAutodetectMap(exe, defsMap) {
+                if (!exe || !defsMap) return null;
+                const entries = Object.entries(defsMap);
+                const extOnPath = normalizeExt(getPathExtLower(exe));
+                const dir = gameDirForFiles(exe);
+
+                let bestKey = null;
+                let bestScore = 0;
+                let bestTie = { fileMatches: -1, extMatch: false };
+                const strongMatches = [];
+
+                for (const [key, ad] of entries) {
+                    const extList = Array.isArray(ad.extensions) ? ad.extensions.map(normalizeExt).filter(Boolean) : [];
+                    const hasExtRule = extList.length > 0;
+                    const extMatch = hasExtRule ? extList.includes(extOnPath) : false;
+
+                    const files = Array.isArray(ad.files) ? ad.files : [];
+                    let fileMatches = 0;
+                    const fileTotal = files.length;
+                    if (fileTotal > 0) {
+                        for (const rel of files) {
+                            const probe = path.join(dir, rel);
+                            if (fs.existsSync(probe)) fileMatches++;
+                        }
+                    }
+                    const allRequired = !!ad.all_required;
+
+                    if (allRequired) {
+                        const needExt = hasExtRule ? extMatch : true; // at least one extension must match if provided
+                        const needFiles = fileTotal > 0 ? fileMatches === fileTotal : true;
+                        if (needExt && needFiles) {
+                            strongMatches.push({ key, fileMatches, extMatch });
+                        }
+                        continue;
+                    }
+
+                    let score = 0;
+                    if (hasExtRule && extMatch) score += 1;
+                    if (fileTotal > 0) score += fileMatches / fileTotal;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestKey = key;
+                        bestTie = { fileMatches, extMatch };
+                    } else if (score === bestScore && score > 0) {
+                        const better =
+                            fileMatches > bestTie.fileMatches ||
+                            (fileMatches === bestTie.fileMatches && extMatch && !bestTie.extMatch);
+                        if (better) {
+                            bestKey = key;
+                            bestTie = { fileMatches, extMatch };
+                        }
+                    }
+                }
+
+                if (strongMatches.length === 1) return strongMatches[0].key;
+                if (strongMatches.length > 1) {
+                    strongMatches.sort((a, b) => {
+                        if (b.fileMatches !== a.fileMatches) return b.fileMatches - a.fileMatches;
+                        if (a.extMatch !== b.extMatch) return (b.extMatch ? 1 : 0) - (a.extMatch ? 1 : 0);
+                        return 0;
+                    });
+                    return strongMatches[0].key;
+                }
+                return bestScore > 0 ? bestKey : null;
+            }
+
+            function tryRemoteAutodetect(exe) {
+                if (!exe) return null;
+                if (!remoteAutodetectMap || !Object.keys(remoteAutodetectMap).length) return null;
+                const remoteKey = detectEngineFromAutodetectMap(exe, remoteAutodetectMap);
+                dbg('remote autodetect result', { remoteKey });
+                if (remoteKey) {
+                    alert(`Module "${remoteKey}" was autodetected but is not installed. Please install it in the Module Manager.`);
+                    const sel = document.getElementById("gameEngine");
+                    if (sel) sel.value = ""; // reset to placeholder
+                    buildOptionsUI();
+                }
+                return remoteKey;
+            }
 
             const moduleManifests = {};
 
@@ -304,15 +497,19 @@
                 const exe = document.getElementById("exePath").value.trim();
                 dbg("autodetect: exe path", exe);
                 if (!exe) return;
-                const key = detectEngineForPath(exe);
-                dbg("autodetect result", { key });
-                if (!key) return;
-                const sel = document.getElementById("gameEngine");
-                // Only set if the option exists
-                const opt = Array.from(sel.options).find((o) => o.value === key);
-                if (opt) {
-                    sel.value = key;
-                    buildOptionsUI();
+                const installedKey = detectEngineForPath(exe);
+                dbg("autodetect installed result", { installedKey });
+
+                if (installedKey) {
+                    const sel = document.getElementById("gameEngine");
+                    const opt = Array.from(sel.options).find((o) => o.value === installedKey);
+                    if (opt) {
+                        sel.value = installedKey;
+                        buildOptionsUI();
+                    }
+                } else {
+                    // Try non-installed modules using autodetect.json
+                    tryRemoteAutodetect(exe);
                 }
             }
 
@@ -334,6 +531,9 @@
             loadModuleManifests();
             populateEngineDropdown();
             dbg("manifests loaded", Object.keys(moduleManifests));
+            // Load cached remote autodetect map, then kick off async sync with 5s timeout
+            loadAutodetectJson();
+            startAutodetectSyncWithTimeout();
 
             // ---------- Determine mode (add vs edit) ----------
             const urlParams = new URLSearchParams(window.location.search);
