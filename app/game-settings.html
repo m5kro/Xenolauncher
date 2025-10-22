@@ -53,6 +53,47 @@
             const os = require("os");
             const { openFile } = require("macos-open-file-dialog");
 
+            // Open a subwindow
+            const openSubwindow = (url, gameId = null) => {
+                document.body.style.pointerEvents = "none";
+
+                const fullUrl = gameId ? `${url}?gameId=${gameId}` : url;
+
+                nw.Window.open(
+                    fullUrl,
+                    {
+                        title: "Subwindow",
+                        resizable: true,
+                    },
+                    (newWin) => {
+                        newWin.on("loaded", () => {
+                            newWin.window.setMainWindow = (themeSettings) => {
+                                applyTheme(themeSettings.darkTheme);
+                            };
+                        });
+
+                        newWin.on("closed", () => {
+                            document.body.style.pointerEvents = "auto";
+                            // After Module Manager closes, refresh modules and (re)select if installed
+                            try {
+                                const pendingKey = window.__pendingModuleInstallKey;
+                                window.__pendingModuleInstallKey = undefined;
+                                refreshManifestsAndDropdown();
+                                const sel = document.getElementById("gameEngine");
+                                if (pendingKey && moduleManifests[pendingKey]) {
+                                    sel.value = pendingKey;
+                                } else {
+                                    sel.value = ""; // default to placeholder
+                                }
+                                buildOptionsUI();
+                            } catch (e) {
+                                console.error("Post-subwindow refresh failed:", e);
+                            }
+                        });
+                    }
+                );
+            };
+
             // Paths
             const settingsPath = path.join(
                 os.homedir(),
@@ -63,7 +104,13 @@
             );
             const gamesPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "games.json");
             const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
-            const autoDetectJsonPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "autodetect.json");
+            const autoDetectJsonPath = path.join(
+                os.homedir(),
+                "Library",
+                "Application Support",
+                "Xenolauncher",
+                "autodetect.json"
+            );
 
             // ---------- Loaders ----------
             function loadSettings() {
@@ -97,7 +144,9 @@
 
             function ensureAppSupportDir() {
                 const base = path.dirname(autoDetectJsonPath);
-                try { fs.mkdirSync(base, { recursive: true }); } catch {}
+                try {
+                    fs.mkdirSync(base, { recursive: true });
+                } catch {}
             }
 
             // GitHub repo settings (same as Module Manager)
@@ -129,10 +178,17 @@
                     // Normalize extensions to array
                     let extensions = [];
                     if (ad) {
-                        const rawExts = Array.isArray(ad.extensions) ? ad.extensions : (ad.extension ? [ad.extension] : []);
+                        const rawExts = Array.isArray(ad.extensions)
+                            ? ad.extensions
+                            : ad.extension
+                            ? [ad.extension]
+                            : [];
                         extensions = rawExts.map((e) => String(e).replace(/^\.+/, "").toLowerCase()).filter(Boolean);
                     }
-                    return { folder: folderName, autodetect: ad ? { extensions, files: ad.files || [], all_required: !!ad.all_required } : null };
+                    return {
+                        folder: folderName,
+                        autodetect: ad ? { extensions, files: ad.files || [], all_required: !!ad.all_required } : null,
+                    };
                 } catch (e) {
                     return { folder: folderName, autodetect: null };
                 }
@@ -151,9 +207,13 @@
                     if (!m.autodetect) continue; // needs autodetect info
                     if (installed.has(m.folder)) continue; // ignore installed modules
                     map[m.folder] = {
-                        ...(m.autodetect.extensions && m.autodetect.extensions.length ? { extensions: m.autodetect.extensions } : {}),
+                        ...(m.autodetect.extensions && m.autodetect.extensions.length
+                            ? { extensions: m.autodetect.extensions }
+                            : {}),
                         ...(m.autodetect.files && m.autodetect.files.length ? { files: m.autodetect.files } : {}),
-                        ...(typeof m.autodetect.all_required === "boolean" ? { all_required: m.autodetect.all_required } : {}),
+                        ...(typeof m.autodetect.all_required === "boolean"
+                            ? { all_required: m.autodetect.all_required }
+                            : {}),
                     };
                 }
                 return map;
@@ -182,7 +242,10 @@
 
             // Start background sync with 5s timeout
             async function startAutodetectSyncWithTimeout() {
-                if (!allowRemoteAutodetect) { dbg("remote autodetect sync disabled by settings"); return; }
+                if (!allowRemoteAutodetect) {
+                    dbg("remote autodetect sync disabled by settings");
+                    return;
+                }
                 if (remoteSyncDone) return;
                 const timeoutMs = 5000;
                 const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs));
@@ -270,18 +333,34 @@
                 return bestScore > 0 ? bestKey : null;
             }
 
+            // Ask to install non-installed autodetected module, open Module Manager with search if yes
             function tryRemoteAutodetect(exe) {
                 if (!exe) return null;
                 if (!remoteAutodetectMap || !Object.keys(remoteAutodetectMap).length) return null;
                 const remoteKey = detectEngineFromAutodetectMap(exe, remoteAutodetectMap);
-                dbg('remote autodetect result', { remoteKey });
+                dbg("remote autodetect result", { remoteKey });
                 if (remoteKey) {
-                    alert(`Module "${remoteKey}" was autodetected but is not installed. Please install it in the Module Manager.`);
                     const sel = document.getElementById("gameEngine");
-                    if (sel) sel.value = ""; // reset to placeholder
+                    // Reset selection to placeholder for now
+                    if (sel) sel.value = "";
                     buildOptionsUI();
+
+                    // Remember which module we're guiding the user to install
+                    window.__pendingModuleInstallKey = remoteKey;
+
+                    const shouldOpen = confirm(
+                        `Module "${remoteKey}" was autodetected but is not installed.\n\nOpen Module Manager to install it now?`
+                    );
+                    if (shouldOpen) {
+                        // Open Module Manager focused on this module. Include quotes as requested: ?search="modulename"
+                        const searchParam = encodeURIComponent(`${remoteKey}`);
+                        openSubwindow(`module-manager.html?search=${searchParam}`);
+                    }
+
+                    // Whether they opened it or not, we return the key
+                    return remoteKey;
                 }
-                return remoteKey;
+                return null;
             }
 
             const moduleManifests = {};
@@ -314,6 +393,21 @@
                     opt.textContent = m.name || key;
                     sel.appendChild(opt);
                 });
+            }
+            function refreshManifestsAndDropdown() {
+                // Clear manifests
+                for (const k of Object.keys(moduleManifests)) delete moduleManifests[k];
+                loadModuleManifests();
+                // Rebuild dropdown with placeholder
+                const sel = document.getElementById("gameEngine");
+                if (sel) {
+                    sel.innerHTML = "";
+                    const ph = document.createElement("option");
+                    ph.value = "";
+                    ph.textContent = "Select a game engine";
+                    sel.appendChild(ph);
+                    populateEngineDropdown();
+                }
             }
 
             // ---------- Options UI ----------
@@ -514,7 +608,7 @@
                     if (allowRemoteAutodetect) {
                         tryRemoteAutodetect(exe);
                     } else {
-                        dbg('remote autodetect disabled by settings');
+                        dbg("remote autodetect disabled by settings");
                     }
                 }
             }
