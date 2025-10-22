@@ -113,9 +113,24 @@
                     if (typeof window.showInstalled === "boolean") return window.showInstalled;
                     return false;
                 }
+
+                // Allow prefilling the search bar via ?search=...
+                function initialSearch() {
+                    const params = new URLSearchParams(window.location.search);
+                    const q = params.get("search");
+                    return q != null ? q : "";
+                }
+
                 // Initialize checkbox state before first render
                 showInstalledOnly = initialShowInstalled();
                 installedOnlyCb.checked = showInstalledOnly;
+
+                // Set the search input & internal query before we fetch modules
+                const presetSearch = initialSearch();
+                if (presetSearch) {
+                    searchInput.value = presetSearch;
+                    moduleQuery = presetSearch.trim().toLowerCase();
+                }
 
                 function filterModules(q) {
                     moduleQuery = (q || "").trim().toLowerCase();

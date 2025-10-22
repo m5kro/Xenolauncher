@@ -427,7 +427,8 @@
                 });
 
                 document.getElementById("moduleManagerButton").addEventListener("click", () => {
-                    openSubwindow("module-manager.html");
+                    const showInstalled = false;
+                    openSubwindow(`module-manager.html?showInstalled=${showInstalled ? "1" : "0"}`);
                 });
 
                 // Search: live-filter as the user types
