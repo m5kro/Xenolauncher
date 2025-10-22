@@ -20,6 +20,13 @@
                     autocomplete="off"
                 />
             </div>
+
+            <div class="filter-wrap" style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem">
+                <label for="installedOnly" style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer">
+                    <input id="installedOnly" type="checkbox" />
+                    <span>Show Installed Only</span>
+                </label>
+            </div>
         </div>
 
         <div id="modules-container">
@@ -39,10 +46,10 @@
                 const unzipper = require("unzipper");
                 const { exec } = require("child_process");
 
-                let allModules = [];          // full, unfiltered list
+                let allModules = []; // full, unfiltered list
                 let installedSet = new Set(); // installed folders
-                let moduleQuery = "";         // current search query
-
+                let moduleQuery = ""; // current search query
+                let showInstalledOnly = false; // NEW: installed-only filter state
 
                 const settingsPath = path.join(
                     os.homedir(),
@@ -81,22 +88,53 @@
                 const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
                 const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}`;
 
+                // UI hooks
+                const searchInput = document.getElementById("moduleSearch");
+                const installedOnlyCb = document.getElementById("installedOnly");
+
                 document.getElementById("refresh-btn").addEventListener("click", fetchModules);
                 document.getElementById("closeButton").addEventListener("click", () => nw.Window.get().close());
-                document.getElementById("moduleSearch").addEventListener("input", (e) => filterModules(e.target.value));
+                searchInput.addEventListener("input", (e) => filterModules(e.target.value));
+
+                // installed-only toggle
+                installedOnlyCb.addEventListener("change", (e) => {
+                    showInstalledOnly = e.target.checked;
+                    filterModules(moduleQuery);
+                });
+
+                // allow preselect via query param ?showInstalled=1
+                function initialShowInstalled() {
+                    const params = new URLSearchParams(window.location.search);
+                    const v = params.get("showInstalled");
+                    if (v != null) {
+                        return v === "1";
+                    }
+                    // Also support a global set by the opener (optional)
+                    if (typeof window.showInstalled === "boolean") return window.showInstalled;
+                    return false;
+                }
+                // Initialize checkbox state before first render
+                showInstalledOnly = initialShowInstalled();
+                installedOnlyCb.checked = showInstalledOnly;
 
                 function filterModules(q) {
-                moduleQuery = (q || "").trim().toLowerCase();
-                const filtered = !moduleQuery
-                    ? allModules
-                    : allModules.filter((m) => {
-                        const haystack = [m.name, m.version, m.author, m.description, m.folder]
-                        .filter(Boolean)
-                        .join(" ")
-                        .toLowerCase();
-                        return haystack.includes(moduleQuery);
-                    });
-                renderTable(filtered, installedSet);
+                    moduleQuery = (q || "").trim().toLowerCase();
+
+                    // First apply text search (if any)
+                    const byQuery = !moduleQuery
+                        ? allModules
+                        : allModules.filter((m) => {
+                              const haystack = [m.name, m.version, m.author, m.description, m.folder]
+                                  .filter(Boolean)
+                                  .join(" ")
+                                  .toLowerCase();
+                              return haystack.includes(moduleQuery);
+                          });
+
+                    // Then apply installed-only filter (if checked)
+                    const filtered = showInstalledOnly ? byQuery.filter((m) => installedSet.has(m.folder)) : byQuery;
+
+                    renderTable(filtered, installedSet);
                 }
 
                 // Fetch remote modules, then render table
@@ -114,7 +152,7 @@
                         // keep a sorted, stable copy
                         allModules = manifests.sort((a, b) => a.name.localeCompare(b.name));
 
-                        // render using current filter (if any)
+                        // render using current filters
                         filterModules(moduleQuery);
                     } catch (err) {
                         container.innerHTML = `<p style="color:red;">Error loading modules: ${err.message}</p>`;
@@ -156,6 +194,9 @@
                         try {
                             await installModule(folder);
                             btn.replaceWith(makeUninstallButton(folder));
+                            // reflect new installed state
+                            installedSet.add(folder);
+                            filterModules(moduleQuery);
                         } catch (e) {
                             console.error(e);
                             btn.textContent = "Error";
@@ -178,6 +219,9 @@
                         try {
                             uninstallModule(folder);
                             btn.replaceWith(makeInstallButton(folder));
+                            // reflect new installed state
+                            installedSet.delete(folder);
+                            filterModules(moduleQuery);
                         } catch (e) {
                             console.error(e);
                             btn.textContent = "Error";
@@ -305,7 +349,13 @@
                     const container = document.getElementById("modules-container");
                     container.innerHTML = "";
                     if (!mods.length) {
-                        const msg = allModules.length ? "No matching modules." : "No modules found.";
+                        const msg = showInstalledOnly
+                            ? installed.size
+                                ? "No installed modules match your search."
+                                : "No installed modules."
+                            : allModules.length
+                            ? "No matching modules."
+                            : "No modules found.";
                         container.innerHTML = `<p>${msg}</p>`;
                         return;
                     }
