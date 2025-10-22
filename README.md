@@ -39,6 +39,7 @@ Some of these can still be used with wine<br>
 5. Categories/Tags
 6. Check for updates
 7. Better error correction
+8. Different/3rd party module repos
 
 # License
 ## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)

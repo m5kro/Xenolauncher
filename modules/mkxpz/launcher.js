@@ -2,7 +2,7 @@
 // Auto detects the RTP version of the game and sets the correct values in the mkxp.json file
 // Uses the kawariki patches to fix some windows API calls
 // Still need to add and apply mkxpz advanced options
-const mkxpzLaunch = (gamePath, gameArgs) => {
+const mkxpzLaunch = (gamePath, gameFolder, gameArgs) => {
     const fs = require('fs');
     const path = require('path');
     const { exec } = require('child_process');
@@ -41,14 +41,14 @@ const mkxpzLaunch = (gamePath, gameArgs) => {
         return ['Standard', 1];
     };
 
-    const RTP = getRtpValue(path.dirname(gamePath));
+    const RTP = getRtpValue(gameFolder);
     const rtpPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'RTP', RTP[0]);
     const kawarikiPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'kawariki', 'preload.rb');
     const midiSoundFontPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'soundfonts', 'GMGSx.SF2');
     
     // Create the mkxp.json file with the correct values
     mkxpzJson = {
-        "gameFolder": path.dirname(gamePath),
+        "gameFolder": gameFolder,
         "RTP": [rtpPath],
         "midiSoundFont": midiSoundFontPath,
         "preloadScript": [kawarikiPath],

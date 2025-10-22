@@ -1,7 +1,7 @@
 // Launches the game natively using the open or arch command
 // Not "safe" though, as it auto trusts the game to make it more "seamless" for users
 // Bypasses apple's stupid "unidentified developer" warning
-const launch = (gamePath, gameArgs) => {
+const launch = (gamePath, gameFolder, gameArgs) => {
     const { exec } = require("child_process");
     console.log(gameArgs);
     if (gameArgs.runWithRosetta) {

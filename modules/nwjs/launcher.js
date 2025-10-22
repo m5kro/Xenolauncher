@@ -1,7 +1,7 @@
 // Launches the game using NW.js
 // Unfortunately, the NW.js instance being used by Xenolauncher doesn't work due to session conflicts :(
 // Requires at least one NW.js version to be installed + permission fixes that are applied during the installation process
-const launch = (gamePath, gameArgs) => {
+const launch = (gamePath, gameFolder, gameArgs) => {
     const path = require('path');
     const { exec } = require('child_process');
     const fs = require('fs');
@@ -10,7 +10,7 @@ const launch = (gamePath, gameArgs) => {
     nwjsPath = path.join(os.homedir(), 'Library', 'Application Support', 'xenolauncher', 'modules', 'nwjs', 'deps', 'nwjs', 'nwjs-sdk-v0.101.0-osx-' + os.arch(), 'nwjs.app', 'Contents', 'MacOS', 'nwjs');
     
     // Check package.json in the game directory for a name if there isn't then give it one
-    const packageJsonPath = path.join(path.dirname(gamePath), 'package.json');
+    const packageJsonPath = path.join(gameFolder, 'package.json');
     let gameName = 'Game';
     if (fs.existsSync(packageJsonPath)) {
         const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
@@ -22,7 +22,7 @@ const launch = (gamePath, gameArgs) => {
     }
 
     // Launch the game using NW.js
-    exec(`"${nwjsPath}" "${path.dirname(gamePath)}"`, (err, stdout, stderr) => {
+    exec(`"${nwjsPath}" "${gameFolder}"`, (err, stdout, stderr) => {
         if (err) {
         console.error(err);
         return;

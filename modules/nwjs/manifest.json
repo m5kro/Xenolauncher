@@ -17,7 +17,7 @@
         }
     },
     "autodetect": {
-        "files": ["nw.dll"],
+        "files": ["nw.dll", "package.json"],
         "all_required": true
     }
 }

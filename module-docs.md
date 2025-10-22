@@ -69,12 +69,13 @@ These options will be passed into your launch function.
 # launcher.js
 **Every module must have a launcher.js with a function named launch that takes in gamePath and gameArgs**<br>
 **You must also export the launch function with `exports.launch = launch;`**<br>
+Taking in the gameFolder variable is optional, it's mostly there for convienience<br>
 <br>
 launcher.js is the connector between xenolauncher and the compatability layer being used. It should take in gamePath and gameArgs and apply them to the compatability layer accordingly. It's up to you how it gets done.
 
 ### Example
 ```
-const launch = (gamePath, gameArgs) => { // <-- REQUIRED
+const launch = (gamePath, gameFolder, gameArgs) => { // <-- REQUIRED
     const { exec } = require('child_process');
     console.log(gameArgs);
     if (gameArgs.runWithRosetta) {
