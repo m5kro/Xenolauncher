@@ -166,7 +166,10 @@
                     // Then apply installed-only filter (if checked)
                     const filtered = showInstalledOnly ? byQuery.filter((m) => installedSet.has(m.folder)) : byQuery;
 
-                    renderTable(filtered, installedSet);
+                    // Sort so modules with updates are on top
+                    const sorted = sortByUpdateThenName(filtered);
+
+                    renderTable(sorted, installedSet);
                 }
 
                 // Fetch remote modules, then render table
@@ -227,8 +230,12 @@
                 }
                 function compareVersions(a, b) {
                     // returns 1 if a>b, -1 if a<b, 0 if equal
-                    const pa = normalizeVer(a).split(/[.-]/).map(tok => (isNaN(tok) ? tok : parseInt(tok, 10)));
-                    const pb = normalizeVer(b).split(/[.-]/).map(tok => (isNaN(tok) ? tok : parseInt(tok, 10)));
+                    const pa = normalizeVer(a)
+                        .split(/[.-]/)
+                        .map((tok) => (isNaN(tok) ? tok : parseInt(tok, 10)));
+                    const pb = normalizeVer(b)
+                        .split(/[.-]/)
+                        .map((tok) => (isNaN(tok) ? tok : parseInt(tok, 10)));
                     const len = Math.max(pa.length, pb.length);
                     for (let i = 0; i < len; i++) {
                         const xa = pa[i] ?? 0;
@@ -254,6 +261,16 @@
                     if (!localVersion || localVersion === "N/A") return false;
                     if (!remoteVersion || remoteVersion === "N/A") return false;
                     return compareVersions(remoteVersion, localVersion) > 0;
+                }
+
+                function sortByUpdateThenName(list) {
+                    // Updates first, then alpha by name
+                    return list.slice().sort((a, b) => {
+                        const aHasUpdate = hasUpdate(a.folder, a.version);
+                        const bHasUpdate = hasUpdate(b.folder, b.version);
+                        if (aHasUpdate !== bHasUpdate) return aHasUpdate ? -1 : 1;
+                        return a.name.localeCompare(b.name);
+                    });
                 }
 
                 // --- Buttons --------------------------------------------------------
