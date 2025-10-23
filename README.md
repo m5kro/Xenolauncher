@@ -31,15 +31,16 @@ Some of these can still be used with wine<br>
 2. Search bar
 3. Autodetect game type
 
-# Planned Features (No Particular Order)
+# Planned Features/TODO (No Particular Order)
 1. Auto Read Game Folders
 2. Auto Add Icons
 3. Pull from game database
 4. Pull settings from database
 5. Categories/Tags
 6. Check for updates
-7. Better error correction
+7. Better error correction/tracking
 8. Different/3rd party module repos
+9. Better module documentation/wiki
 
 # License
 ## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
