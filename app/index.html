@@ -56,6 +56,53 @@
             let currentQuery = "";
             const currentVersion = "0.4.0";
 
+            // Compare "x.y.z" version strings. Returns true if remote > local.
+            function hasUpdate(local, remote) {
+                const l = (local || "0.0.0").split(".").map((n) => parseInt(n, 10) || 0);
+                const r = (remote || "0.0.0").split(".").map((n) => parseInt(n, 10) || 0);
+                for (let i = 0; i < 3; i++) {
+                    if (r[i] > l[i]) return true;
+                    if (r[i] < l[i]) return false;
+                }
+                return false;
+            }
+
+            async function checkLatestReleaseAndPrompt() {
+                try {
+                    const settings = GlobalSettings.loadGlobalSettings();
+                    if (!settings.checkUpdatesOnStartup) return;
+
+                    // Doesn't show pre-releases
+                    const res = await fetch("https://api.github.com/repos/m5kro/Xenolauncher/releases/latest", {
+                        headers: { Accept: "application/vnd.github+json" },
+                    });
+                    if (!res.ok) return;
+
+                    const data = await res.json();
+                    let latest = (data.tag_name || "").trim();
+                    if (latest.startsWith("v")) latest = latest.slice(1); // just in case I accidentally tag with 'v'
+
+                    // Expect "0.0.0" format; ignore unexpected tags silently
+                    if (!/^\d+\.\d+\.\d+$/.test(latest)) return;
+
+                    if (hasUpdate(currentVersion, latest)) {
+                        const wants = confirm(
+                            `A new Xenolauncher version (${latest}) is available (you have ${currentVersion}). ` +
+                                `Would you like to update now?`
+                        );
+                        if (wants) {
+                            const nodeRequire =
+                                typeof window !== "undefined" && window.require ? window.require : require;
+                            const { execSync } = nodeRequire("child_process");
+                            // open the releases page in default browser
+                            execSync("open https://github.com/m5kro/Xenolauncher/releases/latest");
+                        }
+                    }
+                } catch (e) {
+                    console.warn("App update check failed:", e);
+                }
+            }
+
             const bindDeleteButtons = () => {
                 document.querySelectorAll(".delete-option").forEach((button) => {
                     button.removeEventListener("click", handleDeleteButtonClick);
@@ -217,7 +264,7 @@
                 }
             }
 
-            // make init async so we can await the update check
+            // make init async so we can await the checks
             async function init() {
                 const games = Games.loadGames();
                 allGames = games;
@@ -247,7 +294,10 @@
                     filterGames(currentQuery);
                 });
 
-                // run the module update check at startup (non-blocking UX besides the confirm)
+                // 1) Check app release from GitHub
+                await checkLatestReleaseAndPrompt();
+
+                // 2) Then check module updates
                 await promptForModuleUpdatesIfAny();
             }
 

@@ -35,6 +35,11 @@
         </div>
 
         <div class="setting-toggle">
+            <label for="updatesStartupToggle">Check for Xenolauncher updates on startup</label>
+            <input type="checkbox" id="updatesStartupToggle" />
+        </div>
+
+        <div class="setting-toggle">
             <label for="moduleUpdatesStartupToggle">Check for module updates on startup</label>
             <input type="checkbox" id="moduleUpdatesStartupToggle" />
         </div>
@@ -59,6 +64,7 @@
             const s = GlobalSettings.loadGlobalSettings();
             document.getElementById("darkThemeToggle").checked = s.darkTheme;
             document.getElementById("deletionConfirmationToggle").checked = s.deletionConfirmation;
+            document.getElementById("updatesStartupToggle").checked = s.checkUpdatesOnStartup;
             document.getElementById("moduleUpdatesStartupToggle").checked = s.checkModuleUpdatesOnStartup;
             document.getElementById("nonInstalledAutodetectToggle").checked = s.nonInstalledAutodetect;
 
@@ -66,6 +72,7 @@
                 const updated = {
                     darkTheme: document.getElementById("darkThemeToggle").checked,
                     deletionConfirmation: document.getElementById("deletionConfirmationToggle").checked,
+                    checkUpdatesOnStartup: document.getElementById("updatesStartupToggle").checked,
                     checkModuleUpdatesOnStartup: document.getElementById("moduleUpdatesStartupToggle").checked,
                     nonInstalledAutodetect: document.getElementById("nonInstalledAutodetectToggle").checked,
                     currentVersion,
