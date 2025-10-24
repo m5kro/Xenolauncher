@@ -138,9 +138,9 @@
                         const optionsMenu = document.createElement("div");
                         optionsMenu.className = "options-menu";
                         optionsMenu.innerHTML = `
-              <button class="settings-option">Settings</button>
-              <button class="delete-option">Delete</button>
-            `;
+          <button class="settings-option">Settings</button>
+          <button class="delete-option">Delete</button>
+        `;
 
                         titleContainer.appendChild(title);
                         titleContainer.appendChild(optionsButton);
@@ -183,7 +183,42 @@
                 return title.match(/.{1,9}/g).join("\n");
             };
 
-            const init = () => {
+            // check for module updates and optionally open Module Manager (installed only)
+            async function promptForModuleUpdatesIfAny() {
+                try {
+                    // load settings to see if we should check
+                    const settings = GlobalSettings.loadGlobalSettings();
+                    if (!settings.checkModuleUpdatesOnStartup) return;
+
+                    // Only bother if we have any installed folders
+                    const installedSet = Module.getInstalledModuleFolders();
+                    if (!installedSet || installedSet.size === 0) return;
+
+                    const localManifests = Module.readLocalManifests();
+                    const remote = await Module.fetchRemoteManifestsList();
+
+                    const updates = remote.filter((r) => {
+                        if (!installedSet.has(r.folder)) return false;
+                        const localVer = localManifests[r.folder]?.version;
+                        return Module.hasUpdate(localVer, r.version);
+                    });
+
+                    if (updates.length > 0) {
+                        const wants = confirm(
+                            `Updates are available for ${updates.length} module${updates.length > 1 ? "s" : ""}. ` +
+                                `Would you like to open the Module Manager to install them now?`
+                        );
+                        if (wants) {
+                            openSubwindow("module-manager.html?showInstalled=1");
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Module update check failed:", e);
+                }
+            }
+
+            // make init async so we can await the update check
+            async function init() {
                 const games = Games.loadGames();
                 allGames = games;
                 renderGamesGrid(games);
@@ -211,7 +246,10 @@
                     allGames = Games.loadGames();
                     filterGames(currentQuery);
                 });
-            };
+
+                // run the module update check at startup (non-blocking UX besides the confirm)
+                await promptForModuleUpdatesIfAny();
+            }
 
             init();
         </script>

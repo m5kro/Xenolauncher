@@ -35,6 +35,11 @@
         </div>
 
         <div class="setting-toggle">
+            <label for="moduleUpdatesStartupToggle">Check for module updates on startup</label>
+            <input type="checkbox" id="moduleUpdatesStartupToggle" />
+        </div>
+
+        <div class="setting-toggle">
             <label for="nonInstalledAutodetectToggle">Enable Autodetect for Non-Installed Game Engines</label>
             <input type="checkbox" id="nonInstalledAutodetectToggle" />
         </div>
@@ -54,12 +59,14 @@
             const s = GlobalSettings.loadGlobalSettings();
             document.getElementById("darkThemeToggle").checked = s.darkTheme;
             document.getElementById("deletionConfirmationToggle").checked = s.deletionConfirmation;
+            document.getElementById("moduleUpdatesStartupToggle").checked = s.checkModuleUpdatesOnStartup;
             document.getElementById("nonInstalledAutodetectToggle").checked = s.nonInstalledAutodetect;
 
             document.getElementById("saveSettings").addEventListener("click", () => {
                 const updated = {
                     darkTheme: document.getElementById("darkThemeToggle").checked,
                     deletionConfirmation: document.getElementById("deletionConfirmationToggle").checked,
+                    checkModuleUpdatesOnStartup: document.getElementById("moduleUpdatesStartupToggle").checked,
                     nonInstalledAutodetect: document.getElementById("nonInstalledAutodetectToggle").checked,
                     currentVersion,
                 };

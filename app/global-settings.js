@@ -46,6 +46,7 @@
         const defaults = {
             darkTheme: prefersDark(),
             deletionConfirmation: true,
+            checkModuleUpdatesOnStartup: true,
             nonInstalledAutodetect: true,
             currentVersion: "0.0.0",
         };
