@@ -1,7 +1,21 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
     <head>
         <meta charset="UTF-8" />
+        <script src="global-settings.js"></script>
+        <script>
+            // Decide theme before CSS is parsed to prevent flash
+            (function () {
+                const s = GlobalSettings.loadGlobalSettings();
+                GlobalSettings.applyTheme(s.darkTheme);
+
+                // Avoid scrollbar/status-bar flash
+                const meta = document.createElement("meta");
+                meta.name = "color-scheme";
+                meta.content = s.darkTheme ? "dark light" : "light dark";
+                document.head.appendChild(meta);
+            })();
+        </script>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Engine Module Manager</title>
         <link rel="stylesheet" href="main.css" />
@@ -29,120 +43,54 @@
             </div>
         </div>
 
-        <div id="modules-container">
-            <!-- Modules will be injected here -->
-        </div>
+        <div id="modules-container"></div>
 
         <div class="footer">
             <button id="closeButton" class="secondary-button">Close</button>
             <button id="refresh-btn" class="primary-button">Refresh Modules</button>
         </div>
 
+        <!-- Shared scripts -->
+        <script src="module.js"></script>
+
+        <!-- Page logic -->
         <script>
             (function () {
-                const fs = require("fs");
-                const path = require("path");
-                const os = require("os");
-                const unzipper = require("unzipper");
-                const { exec } = require("child_process");
+                const settings = GlobalSettings.loadGlobalSettings();
 
-                let allModules = []; // full, unfiltered list (remote)
+                let allModules = []; // remote list (with manifest meta)
                 let installedSet = new Set(); // installed folders
-                let moduleQuery = ""; // current search query
-                let showInstalledOnly = false; // installed-only filter state
+                let moduleQuery = ""; // search text
                 let moduleManifests = {}; // local manifests keyed by folder
+                let showInstalledOnly = false;
 
-                const settingsPath = path.join(
-                    os.homedir(),
-                    "Library",
-                    "Application Support",
-                    "Xenolauncher",
-                    "global-settings.json"
-                );
-
-                function loadSettings() {
-                    if (!fs.existsSync(settingsPath)) return { darkTheme: false };
-                    try {
-                        return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-                    } catch {
-                        return { darkTheme: false };
-                    }
-                }
-                const settings = loadSettings();
-                document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
-
-                const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
-
-                function getInstalledModules() {
-                    const installed = new Set();
-                    if (!fs.existsSync(modulesDir)) return installed;
-                    fs.readdirSync(modulesDir, { withFileTypes: true })
-                        .filter((d) => d.isDirectory())
-                        .forEach((d) => installed.add(d.name));
-                    return installed;
-                }
-
-                // Load local manifests so we can compare versions
-                function loadModuleManifests() {
-                    if (!fs.existsSync(modulesDir)) return;
-                    fs.readdirSync(modulesDir, { withFileTypes: true })
-                        .filter((d) => d.isDirectory())
-                        .forEach((d) => {
-                            const mf = path.join(modulesDir, d.name, "manifest.json");
-                            if (!fs.existsSync(mf)) return;
-                            try {
-                                moduleManifests[d.name] = JSON.parse(fs.readFileSync(mf, "utf8"));
-                            } catch (e) {
-                                console.error("Bad manifest in", d.name, e);
-                            }
-                        });
-                }
-
-                // GitHub repo settings
-                const owner = "m5kro";
-                const repo = "Xenolauncher";
-                const branch = "main";
-                const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
-                const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}`;
-
-                // UI hooks
                 const searchInput = document.getElementById("moduleSearch");
                 const installedOnlyCb = document.getElementById("installedOnly");
 
                 document.getElementById("refresh-btn").addEventListener("click", fetchModules);
                 document.getElementById("closeButton").addEventListener("click", () => nw.Window.get().close());
                 searchInput.addEventListener("input", (e) => filterModules(e.target.value));
-
-                // installed-only toggle
                 installedOnlyCb.addEventListener("change", (e) => {
                     showInstalledOnly = e.target.checked;
                     filterModules(moduleQuery);
                 });
 
-                // allow preselect via query param ?showInstalled=1
                 function initialShowInstalled() {
                     const params = new URLSearchParams(window.location.search);
                     const v = params.get("showInstalled");
-                    if (v != null) {
-                        return v === "1";
-                    }
-                    // Also support a global set by the opener (optional)
+                    if (v != null) return v === "1";
                     if (typeof window.showInstalled === "boolean") return window.showInstalled;
                     return false;
                 }
-
-                // Allow prefilling the search bar via ?search=...
                 function initialSearch() {
                     const params = new URLSearchParams(window.location.search);
                     const q = params.get("search");
                     return q != null ? q : "";
                 }
 
-                // Initialize checkbox state before first render
                 showInstalledOnly = initialShowInstalled();
                 installedOnlyCb.checked = showInstalledOnly;
 
-                // Set the search input & internal query before we fetch modules
                 const presetSearch = initialSearch();
                 if (presetSearch) {
                     searchInput.value = presetSearch;
@@ -151,8 +99,6 @@
 
                 function filterModules(q) {
                     moduleQuery = (q || "").trim().toLowerCase();
-
-                    // First apply text search (if any)
                     const byQuery = !moduleQuery
                         ? allModules
                         : allModules.filter((m) => {
@@ -163,117 +109,36 @@
                               return haystack.includes(moduleQuery);
                           });
 
-                    // Then apply installed-only filter (if checked)
                     const filtered = showInstalledOnly ? byQuery.filter((m) => installedSet.has(m.folder)) : byQuery;
-
-                    // Sort so modules with updates are on top
                     const sorted = sortByUpdateThenName(filtered);
 
                     renderTable(sorted, installedSet);
                 }
 
-                // Fetch remote modules, then render table
                 async function fetchModules() {
                     const container = document.getElementById("modules-container");
                     container.innerHTML = "<p>Loading modules…</p>";
                     try {
-                        const res = await fetch(`${apiBase}/modules?ref=${branch}`);
-                        if (!res.ok) throw new Error(`GitHub API error ${res.status}`);
-                        const items = await res.json();
-                        const dirs = items.filter((i) => i.type === "dir");
-                        const manifests = await Promise.all(dirs.map((d) => fetchManifest(d.name)));
+                        const manifests = await Module.fetchRemoteManifestsList();
+                        installedSet = Module.getInstalledModuleFolders();
+                        moduleManifests = Module.readLocalManifests();
 
-                        installedSet = getInstalledModules();
-                        moduleManifests = {};
-                        loadModuleManifests(); // <<< populate local versions
-
-                        // keep a sorted, stable copy
                         allModules = manifests.sort((a, b) => a.name.localeCompare(b.name));
-
-                        // render using current filters
                         filterModules(moduleQuery);
                     } catch (err) {
                         container.innerHTML = `<p style="color:red;">Error loading modules: ${err.message}</p>`;
                     }
                 }
 
-                // Fetch a module's manifest and remember its folder to keep consistent with the local filesystem structure
-                async function fetchManifest(folderName) {
-                    const rawUrl = `${rawBase}/modules/${folderName}/manifest.json`;
-                    try {
-                        const res = await fetch(rawUrl);
-                        if (!res.ok) throw new Error(`status ${res.status}`);
-                        const json = await res.json();
-                        return {
-                            folder: folderName,
-                            name: json.name || folderName,
-                            version: json.version || "N/A",
-                            author: json.author || "N/A",
-                            description: json.description || "",
-                        };
-                    } catch {
-                        return {
-                            folder: folderName,
-                            name: folderName,
-                            version: "N/A",
-                            author: "N/A",
-                            description: "Failed to load manifest",
-                        };
-                    }
-                }
-
-                // --- Version helpers -------------------------------------------------
-                function normalizeVer(v) {
-                    return String(v || "")
-                        .trim()
-                        .replace(/^v/i, "");
-                }
-                function compareVersions(a, b) {
-                    // returns 1 if a>b, -1 if a<b, 0 if equal
-                    const pa = normalizeVer(a)
-                        .split(/[.-]/)
-                        .map((tok) => (isNaN(tok) ? tok : parseInt(tok, 10)));
-                    const pb = normalizeVer(b)
-                        .split(/[.-]/)
-                        .map((tok) => (isNaN(tok) ? tok : parseInt(tok, 10)));
-                    const len = Math.max(pa.length, pb.length);
-                    for (let i = 0; i < len; i++) {
-                        const xa = pa[i] ?? 0;
-                        const xb = pb[i] ?? 0;
-                        const na = typeof xa === "number";
-                        const nb = typeof xb === "number";
-                        if (na && nb) {
-                            if (xa > xb) return 1;
-                            if (xa < xb) return -1;
-                        } else if (!na && !nb) {
-                            if (xa > xb) return 1;
-                            if (xa < xb) return -1;
-                        } else {
-                            // numbers rank above strings (prereleases are "lower")
-                            if (na) return 1;
-                            return -1;
-                        }
-                    }
-                    return 0;
-                }
-                function hasUpdate(folder, remoteVersion) {
-                    const localVersion = moduleManifests[folder]?.version;
-                    if (!localVersion || localVersion === "N/A") return false;
-                    if (!remoteVersion || remoteVersion === "N/A") return false;
-                    return compareVersions(remoteVersion, localVersion) > 0;
-                }
-
                 function sortByUpdateThenName(list) {
-                    // Updates first, then alpha by name
                     return list.slice().sort((a, b) => {
-                        const aHasUpdate = hasUpdate(a.folder, a.version);
-                        const bHasUpdate = hasUpdate(b.folder, b.version);
+                        const aHasUpdate = Module.hasUpdate(moduleManifests[a.folder]?.version, a.version);
+                        const bHasUpdate = Module.hasUpdate(moduleManifests[b.folder]?.version, b.version);
                         if (aHasUpdate !== bHasUpdate) return aHasUpdate ? -1 : 1;
                         return a.name.localeCompare(b.name);
                     });
                 }
 
-                // --- Buttons --------------------------------------------------------
                 function makeInstallButton(folder) {
                     const btn = document.createElement("button");
                     btn.className = "primary-button";
@@ -282,11 +147,9 @@
                         btn.disabled = true;
                         btn.textContent = "Installing…";
                         try {
-                            await installModule(folder);
-                            // reflect new installed state + manifests
+                            await Module.installModule(folder);
                             installedSet.add(folder);
-                            moduleManifests = {};
-                            loadModuleManifests();
+                            moduleManifests = Module.readLocalManifests();
                             btn.replaceWith(makeUninstallOrUpdateButton(folder));
                             filterModules(moduleQuery);
                         } catch (e) {
@@ -306,15 +169,11 @@
                         btn.disabled = true;
                         btn.textContent = "Updating…";
                         try {
-                            // uninstall, then install latest
-                            uninstallModule(folder);
+                            Module.uninstallModule(folder);
                             installedSet.delete(folder);
-                            await installModule(folder);
+                            await Module.installModule(folder);
                             installedSet.add(folder);
-                            // reload local manifests after update
-                            moduleManifests = {};
-                            loadModuleManifests();
-                            // After successful update, button should become "Uninstall" (or "Update" if still behind)
+                            moduleManifests = Module.readLocalManifests();
                             btn.replaceWith(makeUninstallOrUpdateButton(folder));
                             filterModules(moduleQuery);
                         } catch (e) {
@@ -331,14 +190,11 @@
                     btn.className = "secondary-button";
                     btn.textContent = "Uninstall";
                     btn.addEventListener("click", () => {
-                        if (!confirm("Are you sure you want to uninstall this module?")) {
-                            return;
-                        }
+                        if (!confirm("Are you sure you want to uninstall this module?")) return;
                         btn.disabled = true;
                         btn.textContent = "Uninstalling…";
                         try {
-                            uninstallModule(folder);
-                            // reflect new installed state
+                            Module.uninstallModule(folder);
                             installedSet.delete(folder);
                             delete moduleManifests[folder];
                             btn.replaceWith(makeInstallButton(folder));
@@ -355,123 +211,11 @@
                 function makeUninstallOrUpdateButton(folder) {
                     const remote = allModules.find((m) => m.folder === folder);
                     const remoteVer = remote?.version || "N/A";
-                    return hasUpdate(folder, remoteVer) ? makeUpdateButton(folder) : makeUninstallButton(folder);
+                    return Module.hasUpdate(moduleManifests[folder]?.version, remoteVer)
+                        ? makeUpdateButton(folder)
+                        : makeUninstallButton(folder);
                 }
 
-                // Download a GitHub directory recursively
-                async function downloadDirectory(remoteDir, localDir) {
-                    fs.mkdirSync(localDir, { recursive: true });
-                    const res = await fetch(`${apiBase}/${remoteDir}?ref=${branch}`);
-                    if (!res.ok) throw new Error(`Failed to list ${remoteDir}: ${res.status}`);
-                    const items = await res.json();
-                    for (const item of items) {
-                        const localPath = path.join(localDir, item.name);
-                        const remotePath = `${remoteDir}/${item.name}`;
-                        if (item.type === "dir") {
-                            await downloadDirectory(remotePath, localPath);
-                        } else if (item.type === "file") {
-                            const fileRes = await fetch(`${rawBase}/${remotePath}`);
-                            if (!fileRes.ok) continue;
-                            const data = await fileRes.arrayBuffer();
-                            fs.writeFileSync(localPath, Buffer.from(data));
-                        }
-                    }
-                }
-
-                // Install dependencies for a module (requires manifest.json)
-                async function installModuleDependencies(modulePath) {
-                    const manifestPath = path.join(modulePath, "manifest.json");
-                    if (!fs.existsSync(manifestPath)) return;
-
-                    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-                    const dependencies = manifest.dependencies || {};
-                    if (Object.keys(dependencies).length === 0) return;
-
-                    // 1) Create top-level deps folder
-                    const depsRoot = path.join(modulePath, "deps");
-                    fs.mkdirSync(depsRoot, { recursive: true });
-
-                    // 2) Determine system architecture key
-                    //    os.arch() returns "x64" or "arm64".
-                    const archMap = { x64: "x86_64", arm64: "arm64" };
-                    const sysArch = archMap[os.arch()] || os.arch();
-
-                    // 3) Download dependencies
-                    for (const [depName, builds] of Object.entries(dependencies)) {
-                        const depDir = path.join(depsRoot, depName);
-                        fs.mkdirSync(depDir, { recursive: true });
-
-                        // Pick "universal" if present, else the matching arch
-                        const key = builds.universal ? "universal" : sysArch;
-                        if (!builds[key]) {
-                            throw new Error(
-                                `No build for "${depName}" matching arch "${sysArch}"` +
-                                    (builds.universal ? ", but universal is available" : "")
-                            );
-                        }
-                        const { link, unzip } = builds[key];
-
-                        // Download the archive
-                        const res = await fetch(link);
-                        if (!res.ok) {
-                            throw new Error(`Failed to download ${depName} from ${link}: ${res.status}`);
-                        }
-                        const buf = Buffer.from(await res.arrayBuffer());
-                        const fileName = path.basename(new URL(link).pathname);
-                        const archivePath = path.join(depDir, fileName);
-                        fs.writeFileSync(archivePath, buf);
-
-                        // If requested, unzip and remove the .zip
-                        if (unzip) {
-                            await new Promise((resolve, reject) => {
-                                fs.createReadStream(archivePath)
-                                    .pipe(unzipper.Extract({ path: depDir }))
-                                    .on("close", resolve)
-                                    .on("error", reject);
-                            });
-                            fs.rmSync(archivePath);
-                        }
-                    }
-
-                    // 4) Set permissions
-                    // Set xattr to remove quarantine flags (apple why make this so hard?)
-                    exec(`xattr -cr "${depsRoot}"`, (err) => {
-                        if (err) {
-                            alert(`Failed to set xattr for ${depsRoot}:`, err);
-                        } else {
-                            console.log(`Set xattr for ${depsRoot}`);
-                        }
-                    });
-                    // Set permissions to 700
-                    // This is necessary for executables to run properly
-                    exec(`chmod -R 700 "${depsRoot}"`, (err) => {
-                        if (err) {
-                            alert(`Failed to set permissions for ${depsRoot}:`, err);
-                        } else {
-                            console.log(`Set permissions for ${depsRoot}`);
-                        }
-                    });
-                }
-
-                // Install by folder name
-                async function installModule(folder) {
-                    const remoteRoot = `modules/${folder}`;
-                    const localRoot = path.join(modulesDir, folder);
-                    await downloadDirectory(remoteRoot, localRoot);
-                    if (fs.existsSync(localRoot)) {
-                        await installModuleDependencies(localRoot);
-                    }
-                }
-
-                // Uninstall by folder name
-                function uninstallModule(folder) {
-                    const localRoot = path.join(modulesDir, folder);
-                    if (fs.existsSync(localRoot)) {
-                        fs.rmSync(localRoot, { recursive: true, force: true });
-                    }
-                }
-
-                // Build table of modules and action buttons
                 function renderTable(mods, installed) {
                     const container = document.getElementById("modules-container");
                     container.innerHTML = "";
@@ -489,13 +233,13 @@
 
                     const table = document.createElement("table");
                     table.innerHTML = `
-        <thead>
-          <tr>
-            <th>Name</th><th>Version</th>
-            <th>Author</th><th>Description</th>
-            <th>Action</th>
-          </tr>
-        </thead>`;
+            <thead>
+              <tr>
+                <th>Name</th><th>Version</th>
+                <th>Author</th><th>Description</th>
+                <th>Action</th>
+              </tr>
+            </thead>`;
                     const tbody = document.createElement("tbody");
 
                     mods.forEach((m) => {
@@ -507,13 +251,9 @@
                         });
 
                         const actionTd = document.createElement("td");
-                        let btn;
-                        if (installed.has(m.folder)) {
-                            // If installed, show Update when remote>local, else Uninstall
-                            btn = makeUninstallOrUpdateButton(m.folder);
-                        } else {
-                            btn = makeInstallButton(m.folder);
-                        }
+                        const btn = installed.has(m.folder)
+                            ? makeUninstallOrUpdateButton(m.folder)
+                            : makeInstallButton(m.folder);
                         actionTd.appendChild(btn);
                         tr.appendChild(actionTd);
                         tbody.appendChild(tr);
@@ -523,7 +263,6 @@
                     container.appendChild(table);
                 }
 
-                // Kick off initial load
                 fetchModules();
             })();
         </script>

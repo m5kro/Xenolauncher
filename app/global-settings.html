@@ -1,7 +1,21 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
     <head>
         <meta charset="UTF-8" />
+        <script src="global-settings.js"></script>
+        <script>
+            // Decide theme before CSS is parsed to prevent flash
+            (function () {
+                const s = GlobalSettings.loadGlobalSettings();
+                GlobalSettings.applyTheme(s.darkTheme);
+
+                // Avoid scrollbar/status-bar flash
+                const meta = document.createElement("meta");
+                meta.name = "color-scheme";
+                meta.content = s.darkTheme ? "dark light" : "light dark";
+                document.head.appendChild(meta);
+            })();
+        </script>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Global Settings</title>
         <link rel="stylesheet" href="main.css" />
@@ -30,72 +44,33 @@
             <button id="saveSettings" class="primary-button">Save</button>
         </div>
 
+        <!-- Shared scripts -->
+        <script src="window-utils.js"></script>
+
+        <!-- Page logic -->
         <script>
-            // More options may be added in the future
-            const fs = require("fs");
-            const path = require("path");
-            const os = require("os");
             const currentVersion = "0.4.0";
-            const settingsPath = path.join(
-                os.homedir(),
-                "Library",
-                "Application Support",
-                "Xenolauncher",
-                "global-settings.json"
-            );
 
-            // Ensure the settings directory exists
-            const loadSettings = () => {
-                if (fs.existsSync(settingsPath)) {
-                    const data = fs.readFileSync(settingsPath, "utf-8");
-                    const settings = JSON.parse(data);
-                    return {
-                        darkTheme: settings.darkTheme ?? window.matchMedia("(prefers-color-scheme: dark)").matches,
-                        deletionConfirmation: settings.deletionConfirmation ?? true,
-                        nonInstalledAutodetect: settings.nonInstalledAutodetect ?? true,
-                    };
-                }
-                const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-                return { darkTheme: prefersDark, deletionConfirmation: true, nonInstalledAutodetect: true };
-            };
-
-            const saveSettings = (settings) => {
-                try {
-                    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-                    alert("Settings saved!");
-                } catch (error) {
-                    console.error(error);
-                    alert("Failed to save settings! " + error.message);
-                }
-            };
-
-            // Apply the theme based on the settings, this will be on every page
-            const applyTheme = (isDark) => {
-                document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
-            };
-
-            const settings = loadSettings();
-            document.getElementById("darkThemeToggle").checked = settings.darkTheme;
-            document.getElementById("deletionConfirmationToggle").checked = settings.deletionConfirmation;
-            document.getElementById("nonInstalledAutodetectToggle").checked = settings.nonInstalledAutodetect;
-            applyTheme(settings.darkTheme);
+            const s = GlobalSettings.loadGlobalSettings();
+            document.getElementById("darkThemeToggle").checked = s.darkTheme;
+            document.getElementById("deletionConfirmationToggle").checked = s.deletionConfirmation;
+            document.getElementById("nonInstalledAutodetectToggle").checked = s.nonInstalledAutodetect;
 
             document.getElementById("saveSettings").addEventListener("click", () => {
-                const updatedSettings = {
+                const updated = {
                     darkTheme: document.getElementById("darkThemeToggle").checked,
                     deletionConfirmation: document.getElementById("deletionConfirmationToggle").checked,
                     nonInstalledAutodetect: document.getElementById("nonInstalledAutodetectToggle").checked,
-                    currentVersion: currentVersion,
+                    currentVersion,
                 };
-                saveSettings(updatedSettings);
-                applyTheme(updatedSettings.darkTheme);
-                window.setMainWindow(updatedSettings);
+                GlobalSettings.saveGlobalSettings(updated);
+                alert("Settings saved!");
+                GlobalSettings.applyTheme(updated.darkTheme);
+                window.setMainWindow(updated);
                 nw.Window.get().close();
             });
 
-            document.getElementById("cancelButton").addEventListener("click", () => {
-                nw.Window.get().close();
-            });
+            document.getElementById("cancelButton").addEventListener("click", () => nw.Window.get().close());
         </script>
     </body>
 </html>

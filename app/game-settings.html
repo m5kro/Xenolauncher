@@ -1,7 +1,21 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
     <head>
         <meta charset="UTF-8" />
+        <script src="global-settings.js"></script>
+        <script>
+            // Decide theme before CSS is parsed to prevent flash
+            (function () {
+                const s = GlobalSettings.loadGlobalSettings();
+                GlobalSettings.applyTheme(s.darkTheme);
+
+                // Avoid scrollbar/status-bar flash
+                const meta = document.createElement("meta");
+                meta.name = "color-scheme";
+                meta.content = s.darkTheme ? "dark light" : "light dark";
+                document.head.appendChild(meta);
+            })();
+        </script>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Game Settings</title>
         <link rel="stylesheet" href="main.css" />
@@ -47,344 +61,24 @@
             <button id="saveGame" class="primary-button">Save</button>
         </div>
 
+        <!-- Shared scripts -->
+        <script src="window-utils.js"></script>
+        <script src="games.js"></script>
+        <script src="module.js"></script>
+
+        <!-- Page logic -->
         <script>
             const fs = require("fs");
             const path = require("path");
             const os = require("os");
             const { openFile } = require("macos-open-file-dialog");
 
-            // Open a subwindow
-            const openSubwindow = (url, gameId = null) => {
-                document.body.style.pointerEvents = "none";
+            const gs = GlobalSettings.loadGlobalSettings();
+            const allowRemoteAutodetect = gs.nonInstalledAutodetect !== false;
 
-                const fullUrl = gameId ? `${url}?gameId=${gameId}` : url;
+            // Local manifests (installed modules)
+            let moduleManifests = Module.readLocalManifests();
 
-                nw.Window.open(
-                    fullUrl,
-                    {
-                        title: "Subwindow",
-                        resizable: true,
-                    },
-                    (newWin) => {
-                        newWin.on("loaded", () => {
-                            newWin.window.setMainWindow = (themeSettings) => {
-                                applyTheme(themeSettings.darkTheme);
-                            };
-                        });
-
-                        newWin.on("closed", () => {
-                            document.body.style.pointerEvents = "auto";
-                            // After Module Manager closes, refresh modules and (re)select if installed
-                            try {
-                                const pendingKey = window.__pendingModuleInstallKey;
-                                window.__pendingModuleInstallKey = undefined;
-                                refreshManifestsAndDropdown();
-                                const sel = document.getElementById("gameEngine");
-                                if (pendingKey && moduleManifests[pendingKey]) {
-                                    sel.value = pendingKey;
-                                } else {
-                                    sel.value = ""; // default to placeholder
-                                }
-                                buildOptionsUI();
-                            } catch (e) {
-                                console.error("Post-subwindow refresh failed:", e);
-                            }
-                        });
-                    }
-                );
-            };
-
-            // Paths
-            const settingsPath = path.join(
-                os.homedir(),
-                "Library",
-                "Application Support",
-                "Xenolauncher",
-                "global-settings.json"
-            );
-            const gamesPath = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "games.json");
-            const modulesDir = path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
-            const autoDetectJsonPath = path.join(
-                os.homedir(),
-                "Library",
-                "Application Support",
-                "Xenolauncher",
-                "autodetect.json"
-            );
-
-            // ---------- Loaders ----------
-            function loadSettings() {
-                if (!fs.existsSync(settingsPath)) return { darkTheme: false };
-                try {
-                    return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-                } catch {
-                    return { darkTheme: false };
-                }
-            }
-            function loadGames() {
-                if (!fs.existsSync(gamesPath)) return {};
-                try {
-                    return JSON.parse(fs.readFileSync(gamesPath, "utf8"));
-                } catch {
-                    return {};
-                }
-            }
-            function saveGames(games) {
-                fs.writeFileSync(gamesPath, JSON.stringify(games, null, 2), "utf8");
-            }
-
-            // Apply theme early
-            const settings = loadSettings();
-            const allowRemoteAutodetect = settings.nonInstalledAutodetect !== false;
-            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
-
-            // -------- Remote autodetect (non-installed modules) --------
-            let remoteAutodetectMap = {};
-            let remoteSyncDone = false;
-
-            function ensureAppSupportDir() {
-                const base = path.dirname(autoDetectJsonPath);
-                try {
-                    fs.mkdirSync(base, { recursive: true });
-                } catch {}
-            }
-
-            // GitHub repo settings (same as Module Manager)
-            const owner = "m5kro";
-            const repo = "Xenolauncher";
-            const branch = "main";
-            const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
-            const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}`;
-
-            function getInstalledModuleFolders() {
-                const installed = new Set();
-                if (!fs.existsSync(modulesDir)) return installed;
-                try {
-                    fs.readdirSync(modulesDir, { withFileTypes: true })
-                        .filter((d) => d.isDirectory())
-                        .forEach((d) => installed.add(d.name));
-                } catch {}
-                return installed;
-            }
-
-            // Copy of Module Manager's fetchManifest adapted for autodetect-only
-            async function fetchManifest(folderName) {
-                const rawUrl = `${rawBase}/modules/${folderName}/manifest.json`;
-                try {
-                    const res = await fetch(rawUrl);
-                    if (!res.ok) throw new Error(`status ${res.status}`);
-                    const json = await res.json();
-                    const ad = json.autodetect || null;
-                    // Normalize extensions to array
-                    let extensions = [];
-                    if (ad) {
-                        const rawExts = Array.isArray(ad.extensions)
-                            ? ad.extensions
-                            : ad.extension
-                            ? [ad.extension]
-                            : [];
-                        extensions = rawExts.map((e) => String(e).replace(/^\.+/, "").toLowerCase()).filter(Boolean);
-                    }
-                    return {
-                        folder: folderName,
-                        autodetect: ad ? { extensions, files: ad.files || [], all_required: !!ad.all_required } : null,
-                    };
-                } catch (e) {
-                    return { folder: folderName, autodetect: null };
-                }
-            }
-
-            // Copy of Module Manager's fetchModules adapted to produce autodetect.json map
-            async function fetchModulesForAutodetect() {
-                const res = await fetch(`${apiBase}/modules?ref=${branch}`);
-                if (!res.ok) throw new Error(`GitHub API error ${res.status}`);
-                const items = await res.json();
-                const dirs = items.filter((i) => i.type === "dir");
-                const manifests = await Promise.all(dirs.map((d) => fetchManifest(d.name)));
-                const installed = getInstalledModuleFolders();
-                const map = {};
-                for (const m of manifests) {
-                    if (!m.autodetect) continue; // needs autodetect info
-                    if (installed.has(m.folder)) continue; // ignore installed modules
-                    map[m.folder] = {
-                        ...(m.autodetect.extensions && m.autodetect.extensions.length
-                            ? { extensions: m.autodetect.extensions }
-                            : {}),
-                        ...(m.autodetect.files && m.autodetect.files.length ? { files: m.autodetect.files } : {}),
-                        ...(typeof m.autodetect.all_required === "boolean"
-                            ? { all_required: m.autodetect.all_required }
-                            : {}),
-                    };
-                }
-                return map;
-            }
-
-            function saveAutodetectJson(map) {
-                try {
-                    ensureAppSupportDir();
-                    fs.writeFileSync(autoDetectJsonPath, JSON.stringify(map, null, 2), "utf8");
-                    dbg("wrote autodetect.json", autoDetectJsonPath);
-                } catch (e) {
-                    console.error("Failed to write autodetect.json", e);
-                }
-            }
-
-            function loadAutodetectJson() {
-                try {
-                    if (!fs.existsSync(autoDetectJsonPath)) return;
-                    const obj = JSON.parse(fs.readFileSync(autoDetectJsonPath, "utf8"));
-                    remoteAutodetectMap = obj && typeof obj === "object" ? obj : {};
-                    dbg("loaded autodetect.json keys", Object.keys(remoteAutodetectMap));
-                } catch (e) {
-                    console.warn("Failed to read autodetect.json", e);
-                }
-            }
-
-            // Start background sync with 5s timeout
-            async function startAutodetectSyncWithTimeout() {
-                if (!allowRemoteAutodetect) {
-                    dbg("remote autodetect sync disabled by settings");
-                    return;
-                }
-                if (remoteSyncDone) return;
-                const timeoutMs = 5000;
-                const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs));
-                try {
-                    const map = await Promise.race([fetchModulesForAutodetect(), timer]);
-                    remoteAutodetectMap = map;
-                    saveAutodetectJson(map);
-                    remoteSyncDone = true;
-                    dbg("autodetect sync complete", Object.keys(map));
-                    // If user already has an exe path and no engine set, try remote detect now
-                    const exe = (document.getElementById("exePath")?.value || "").trim();
-                    const sel = document.getElementById("gameEngine");
-                    if (!window.__editingMode && exe && sel && !sel.value) {
-                        tryRemoteAutodetect(exe);
-                    }
-                } catch (e) {
-                    dbg("autodetect sync failed or timed out", e.message || e);
-                }
-            }
-
-            function detectEngineFromAutodetectMap(exe, defsMap) {
-                if (!exe || !defsMap) return null;
-                const entries = Object.entries(defsMap);
-                const extOnPath = normalizeExt(getPathExtLower(exe));
-                const dir = gameDirForFiles(exe);
-
-                let bestKey = null;
-                let bestScore = 0;
-                let bestTie = { fileMatches: -1, extMatch: false };
-                const strongMatches = [];
-
-                for (const [key, ad] of entries) {
-                    const extList = Array.isArray(ad.extensions) ? ad.extensions.map(normalizeExt).filter(Boolean) : [];
-                    const hasExtRule = extList.length > 0;
-                    const extMatch = hasExtRule ? extList.includes(extOnPath) : false;
-
-                    const files = Array.isArray(ad.files) ? ad.files : [];
-                    let fileMatches = 0;
-                    const fileTotal = files.length;
-                    if (fileTotal > 0) {
-                        for (const rel of files) {
-                            const probe = path.join(dir, rel);
-                            if (fs.existsSync(probe)) fileMatches++;
-                        }
-                    }
-                    const allRequired = !!ad.all_required;
-
-                    if (allRequired) {
-                        const needExt = hasExtRule ? extMatch : true; // at least one extension must match if provided
-                        const needFiles = fileTotal > 0 ? fileMatches === fileTotal : true;
-                        if (needExt && needFiles) {
-                            strongMatches.push({ key, fileMatches, extMatch });
-                        }
-                        continue;
-                    }
-
-                    let score = 0;
-                    if (hasExtRule && extMatch) score += 1;
-                    if (fileTotal > 0) score += fileMatches / fileTotal;
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestKey = key;
-                        bestTie = { fileMatches, extMatch };
-                    } else if (score === bestScore && score > 0) {
-                        const better =
-                            fileMatches > bestTie.fileMatches ||
-                            (fileMatches === bestTie.fileMatches && extMatch && !bestTie.extMatch);
-                        if (better) {
-                            bestKey = key;
-                            bestTie = { fileMatches, extMatch };
-                        }
-                    }
-                }
-
-                if (strongMatches.length === 1) return strongMatches[0].key;
-                if (strongMatches.length > 1) {
-                    strongMatches.sort((a, b) => {
-                        if (b.fileMatches !== a.fileMatches) return b.fileMatches - a.fileMatches;
-                        if (a.extMatch !== b.extMatch) return (b.extMatch ? 1 : 0) - (a.extMatch ? 1 : 0);
-                        return 0;
-                    });
-                    return strongMatches[0].key;
-                }
-                return bestScore > 0 ? bestKey : null;
-            }
-
-            // Ask to install non-installed autodetected module, open Module Manager with search if yes
-            function tryRemoteAutodetect(exe) {
-                if (!exe) return null;
-                if (!remoteAutodetectMap || !Object.keys(remoteAutodetectMap).length) return null;
-                const remoteKey = detectEngineFromAutodetectMap(exe, remoteAutodetectMap);
-                dbg("remote autodetect result", { remoteKey });
-                if (remoteKey) {
-                    const sel = document.getElementById("gameEngine");
-                    // Reset selection to placeholder for now
-                    if (sel) sel.value = "";
-                    buildOptionsUI();
-
-                    // Remember which module we're guiding the user to install
-                    window.__pendingModuleInstallKey = remoteKey;
-
-                    const shouldOpen = confirm(
-                        `Module "${remoteKey}" was autodetected but is not installed.\n\nOpen Module Manager to install it now?`
-                    );
-                    if (shouldOpen) {
-                        // Open Module Manager focused on this module. Include quotes as requested: ?search="modulename"
-                        const searchParam = encodeURIComponent(`${remoteKey}`);
-                        openSubwindow(`module-manager.html?search=${searchParam}`);
-                    }
-
-                    // Whether they opened it or not, we return the key
-                    return remoteKey;
-                }
-                return null;
-            }
-
-            const moduleManifests = {};
-
-            const __DEBUG_AUTODETECT = true;
-            const dbg = (...args) => {
-                if (__DEBUG_AUTODETECT) console.log("[AutoDetect]", ...args);
-            };
-
-            // ---------- Module manifests ----------
-            function loadModuleManifests() {
-                if (!fs.existsSync(modulesDir)) return;
-                fs.readdirSync(modulesDir, { withFileTypes: true })
-                    .filter((d) => d.isDirectory())
-                    .forEach((d) => {
-                        const mf = path.join(modulesDir, d.name, "manifest.json");
-                        if (!fs.existsSync(mf)) return;
-                        try {
-                            moduleManifests[d.name] = JSON.parse(fs.readFileSync(mf, "utf8"));
-                        } catch (e) {
-                            console.error("Bad manifest in", d.name, e);
-                        }
-                    });
-            }
             function populateEngineDropdown() {
                 const sel = document.getElementById("gameEngine");
                 Object.entries(moduleManifests).forEach(([key, m]) => {
@@ -394,26 +88,20 @@
                     sel.appendChild(opt);
                 });
             }
+
             function refreshManifestsAndDropdown() {
-                // Clear manifests
-                for (const k of Object.keys(moduleManifests)) delete moduleManifests[k];
-                loadModuleManifests();
-                // Rebuild dropdown with placeholder
+                moduleManifests = Module.readLocalManifests();
                 const sel = document.getElementById("gameEngine");
-                if (sel) {
-                    sel.innerHTML = "";
-                    const ph = document.createElement("option");
-                    ph.value = "";
-                    ph.textContent = "Select a game engine";
-                    sel.appendChild(ph);
-                    populateEngineDropdown();
-                }
+                sel.innerHTML = "";
+                const ph = document.createElement("option");
+                ph.value = "";
+                ph.textContent = "Select a game engine";
+                sel.appendChild(ph);
+                populateEngineDropdown();
             }
 
-            // ---------- Options UI ----------
             function buildOptionsUI() {
                 const engine = document.getElementById("gameEngine").value;
-                dbg("buildOptionsUI", { engine });
                 const optsDiv = document.getElementById("options");
                 const container = document.getElementById("engineOptions");
                 container.innerHTML = "";
@@ -453,12 +141,10 @@
                             input.step = "any";
                             input.value = def.default != null ? def.default : "";
                         } else {
-                            // string/other
                             input.type = "text";
                             input.value = def.default || "";
                         }
                     }
-
                     wrapper.appendChild(input);
                     container.appendChild(wrapper);
                 });
@@ -466,136 +152,88 @@
                 optsDiv.style.display = Object.keys(defs).length ? "block" : "none";
             }
 
-            // ---------- Autodetect helpers ----------
-            function normalizeExt(ext) {
-                if (!ext) return "";
-                return String(ext).replace(/^\.+/, "").toLowerCase();
+            // ---------- Remote autodetect (non-installed modules) ----------
+            const autoDetectJsonPath = path.join(GlobalSettings.getAppSupportDir(), "autodetect.json");
+            let remoteAutodetectMap = {};
+            let remoteSyncDone = false;
+
+            function ensureAppSupportDir() {
+                try {
+                    fs.mkdirSync(GlobalSettings.getAppSupportDir(), { recursive: true });
+                } catch {}
             }
-            function getPathExtLower(p) {
-                if (!p) return "";
-                let pp = p.trim();
-                // remove trailing slash for bundles like .app/
-                pp = pp.replace(/[\\/]+$/, "");
-                const base = path.basename(pp);
-                const idx = base.lastIndexOf(".");
-                return idx >= 0 ? base.slice(idx + 1).toLowerCase() : "";
-            }
-            function isAppBundlePath(p) {
-                return normalizeExt(getPathExtLower(p)) === "app";
-            }
-            function gameDirForFiles(exe) {
-                // If it's an .app bundle, look inside the bundle; otherwise, look beside the file
-                if (isAppBundlePath(exe)) {
-                    return exe.replace(/[\\/]+$/, "");
+            function saveAutodetectJson(map) {
+                try {
+                    ensureAppSupportDir();
+                    fs.writeFileSync(autoDetectJsonPath, JSON.stringify(map, null, 2), "utf8");
+                } catch (e) {
+                    console.error("Failed to write autodetect.json", e);
                 }
-                return path.dirname(exe);
+            }
+            function loadAutodetectJson() {
+                try {
+                    if (!fs.existsSync(autoDetectJsonPath)) return;
+                    remoteAutodetectMap = JSON.parse(fs.readFileSync(autoDetectJsonPath, "utf8")) || {};
+                } catch (e) {
+                    console.warn("Failed to read autodetect.json", e);
+                }
             }
 
-            function detectEngineForPath(exe) {
+            async function startAutodetectSyncWithTimeout() {
+                if (!allowRemoteAutodetect || remoteSyncDone) return;
+                const timeoutMs = 5000;
+                const timer = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs));
+                try {
+                    const map = await Promise.race([Module.fetchModulesForAutodetect(), timer]);
+                    remoteAutodetectMap = map;
+                    saveAutodetectJson(map);
+                    remoteSyncDone = true;
+
+                    const exe = (document.getElementById("exePath")?.value || "").trim();
+                    const sel = document.getElementById("gameEngine");
+                    if (!window.__editingMode && exe && sel && !sel.value) {
+                        tryRemoteAutodetect(exe);
+                    }
+                } catch (e) {
+                    console.log("autodetect sync failed or timed out", e && e.message ? e.message : e);
+                }
+            }
+
+            function tryRemoteAutodetect(exe) {
                 if (!exe) return null;
-                const extOnPath = normalizeExt(getPathExtLower(exe));
-                const dir = gameDirForFiles(exe);
+                if (!remoteAutodetectMap || !Object.keys(remoteAutodetectMap).length) return null;
+                const remoteKey = Module.detectEngineFromAutodetectMap(exe, remoteAutodetectMap);
+                if (remoteKey) {
+                    const sel = document.getElementById("gameEngine");
+                    if (sel) sel.value = "";
+                    buildOptionsUI();
 
-                dbg("detectEngineForPath", { exe, extOnPath, dir });
-
-                let bestKey = null;
-                let bestScore = 0;
-                let bestTie = { fileMatches: -1, extMatch: false };
-                const strongMatches = []; // all_required satisfied
-
-                for (const [key, manifest] of Object.entries(moduleManifests)) {
-                    const ad = manifest.autodetect;
-                    dbg("checking module", key, "has autodetect?", !!ad);
-                    if (!ad) continue; // optional
-
-                    const extListRaw = Array.isArray(ad.extensions)
-                        ? ad.extensions
-                        : ad.extension
-                        ? [ad.extension]
-                        : []; // backward compat
-                    const extList = extListRaw.map(normalizeExt).filter(Boolean);
-                    const hasExtRule = extList.length > 0;
-                    const extMatch = hasExtRule ? extList.includes(extOnPath) : false;
-
-                    const files = Array.isArray(ad.files) ? ad.files : [];
-                    let fileMatches = 0;
-                    let fileTotal = files.length;
-                    if (fileTotal > 0) {
-                        for (const rel of files) {
-                            const probe = path.join(dir, rel);
-                            if (fs.existsSync(probe)) fileMatches++;
-                        }
+                    window.__pendingModuleInstallKey = remoteKey;
+                    const shouldOpen = confirm(
+                        `Module "${remoteKey}" was autodetected but is not installed.\n\nOpen Module Manager to install it now?`
+                    );
+                    if (shouldOpen) {
+                        const searchParam = encodeURIComponent(`${remoteKey}`);
+                        openSubwindow(`module-manager.html?search=${searchParam}`, null, () => {
+                            // After closing, refresh local manifests and reselect if installed
+                            refreshManifestsAndDropdown();
+                            if (moduleManifests[remoteKey]) {
+                                document.getElementById("gameEngine").value = remoteKey;
+                                buildOptionsUI();
+                            }
+                        });
                     }
-                    const allRequired = !!ad.all_required;
-
-                    dbg("module facts", { key, extList, extMatch, files, fileMatches, allRequired });
-
-                    // Evaluate
-                    if (allRequired) {
-                        const needExt = hasExtRule ? extMatch : true;
-                        const needFiles = fileTotal > 0 ? fileMatches === fileTotal : true;
-                        if (needExt && needFiles) {
-                            strongMatches.push({ key, fileMatches, extMatch });
-                        }
-                        continue; // skip scoring path for all_required
-                    }
-
-                    // Score-based selection (weights: ext=1, files up to 1)
-                    let score = 0;
-                    if (hasExtRule && extMatch) score += 1;
-                    if (fileTotal > 0) score += fileMatches / fileTotal; // [0..1]
-
-                    dbg("score", { key, score, hasExtRule, extMatch, fileMatches, fileTotal });
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestKey = key;
-                        bestTie = { fileMatches, extMatch };
-                        dbg("new best", { bestKey, bestScore });
-                    } else if (score === bestScore && score > 0) {
-                        // Tie-break: prefer more file matches, then ext match
-                        const better =
-                            fileMatches > bestTie.fileMatches ||
-                            (fileMatches === bestTie.fileMatches && extMatch && !bestTie.extMatch);
-                        if (better) {
-                            bestKey = key;
-                            bestTie = { fileMatches, extMatch };
-                            dbg("new best", { bestKey, bestScore });
-                        }
-                    }
+                    return remoteKey;
                 }
-
-                if (strongMatches.length === 1) {
-                    dbg("all_required winner", strongMatches[0].key);
-                    dbg("all_required tie, picked", strongMatches[0].key, strongMatches);
-                    return strongMatches[0].key;
-                }
-                if (strongMatches.length > 1) {
-                    // Choose the strongest by fileMatches, then extMatch
-                    strongMatches.sort((a, b) => {
-                        if (b.fileMatches !== a.fileMatches) return b.fileMatches - a.fileMatches;
-                        if (a.extMatch !== b.extMatch) return (b.extMatch ? 1 : 0) - (a.extMatch ? 1 : 0);
-                        return 0;
-                    });
-                    return strongMatches[0].key;
-                }
-
-                const finalKey = bestScore > 0 ? bestKey : null;
-                dbg("fallback winner", { bestKey, bestScore, finalKey });
-                return finalKey;
+                return null;
             }
 
             function autodetectEngine() {
-                if (window.__editingMode) {
-                    dbg("autodetect skipped: editing mode");
-                    return;
-                } // don't autodetect when editing
+                if (window.__editingMode) return; // skip while editing
                 const exe = document.getElementById("exePath").value.trim();
-                dbg("autodetect: exe path", exe);
                 if (!exe) return;
-                const installedKey = detectEngineForPath(exe);
-                dbg("autodetect installed result", { installedKey });
 
+                const installedKey = Module.detectEngineForPath(exe, moduleManifests);
                 if (installedKey) {
                     const sel = document.getElementById("gameEngine");
                     const opt = Array.from(sel.options).find((o) => o.value === installedKey);
@@ -603,13 +241,8 @@
                         sel.value = installedKey;
                         buildOptionsUI();
                     }
-                } else {
-                    // Try non-installed modules using autodetect.json
-                    if (allowRemoteAutodetect) {
-                        tryRemoteAutodetect(exe);
-                    } else {
-                        dbg("remote autodetect disabled by settings");
-                    }
+                } else if (allowRemoteAutodetect) {
+                    tryRemoteAutodetect(exe);
                 }
             }
 
@@ -628,23 +261,17 @@
             document.getElementById("gameEngine").addEventListener("change", buildOptionsUI);
 
             // ---------- Init dropdowns ----------
-            loadModuleManifests();
             populateEngineDropdown();
-            dbg("manifests loaded", Object.keys(moduleManifests));
-            // Load cached remote autodetect map, then kick off async sync with 5s timeout (only if enabled)
             if (allowRemoteAutodetect) {
                 loadAutodetectJson();
                 startAutodetectSyncWithTimeout();
-            } else {
-                dbg("nonInstalledAutodetect disabled via settings");
             }
 
             // ---------- Determine mode (add vs edit) ----------
             const urlParams = new URLSearchParams(window.location.search);
-            const gameId = urlParams.get("gameId"); // if present -> edit
-            const games = loadGames();
+            const gameId = urlParams.get("gameId");
+            const games = Games.loadGames();
             const editing = !!(gameId && games[gameId]);
-            // expose to autodetect function without needing to pass around
             window.__editingMode = editing;
 
             document.getElementById("pageTitle").textContent = editing ? "Edit Game" : "Add Game";
@@ -665,13 +292,12 @@
                     else el.value = saved != null ? saved : def.default || "";
                 });
             } else {
-                // Add mode: wire up live autodetect as the user types/pastes the path
                 const exeInput = document.getElementById("exePath");
                 exeInput.addEventListener("input", () => autodetectEngine());
                 exeInput.addEventListener("change", () => autodetectEngine());
             }
 
-            // ---------- Save handler: upsert ----------
+            // ---------- Save handler ----------
             document.getElementById("saveGame").addEventListener("click", () => {
                 const title = document.getElementById("gameTitle").value.trim();
                 const exe = document.getElementById("exePath").value.trim();
@@ -698,11 +324,11 @@
                     gameArgs: settingsObj,
                 };
 
-                const gamesNow = loadGames();
+                const gamesNow = Games.loadGames();
                 if (editing) {
                     gamesNow[gameId] = newData;
                     try {
-                        saveGames(gamesNow);
+                        Games.saveGames(gamesNow);
                         alert("Game settings saved!");
                     } catch (e) {
                         console.error("Error saving game:", e);
@@ -715,7 +341,7 @@
                             .reduce((m, c) => Math.max(m, isNaN(c) ? 0 : c), 0) + 1;
                     gamesNow[nextID] = newData;
                     try {
-                        saveGames(gamesNow);
+                        Games.saveGames(gamesNow);
                         alert("Game added!");
                     } catch (e) {
                         console.error("Error saving game:", e);
