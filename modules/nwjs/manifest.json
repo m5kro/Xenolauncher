@@ -25,6 +25,16 @@
             "type": "multi-version",
             "label": "NW.js Version",
             "version-script": "nwjs.js"
+        },
+        "testdropdown": {
+            "type": "dropdown",
+            "label": "test",
+            "default": "option2",
+            "options": [
+                {"label": "Option 1", "value": "option1"},
+                {"label": "Option 2", "value": "option2"},
+                {"label": "Option 3", "value": "option3"}
+            ]
         }
     }
 }

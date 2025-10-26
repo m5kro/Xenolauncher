@@ -234,6 +234,45 @@
                         return;
                     }
 
+                    if (def.type === "dropdown") {
+                        // <select> with options: [{ label: string, value: string }, ...]
+                        const select = document.createElement("select");
+                        select.id = id;
+                        select.name = key;
+
+                        const opts = Array.isArray(def.options) ? def.options : [];
+                        if (!opts.length) {
+                            const opt = document.createElement("option");
+                            opt.value = "";
+                            opt.textContent = "No options available";
+                            select.appendChild(opt);
+                            select.disabled = true;
+                        } else {
+                            opts.forEach((item) => {
+                                const value = String(item?.value ?? "");
+                                const labelTxt = String(item?.label ?? item?.value ?? "");
+                                if (!value) return; // skip invalid/empty values
+                                const opt = document.createElement("option");
+                                opt.value = value;
+                                opt.textContent = labelTxt;
+                                select.appendChild(opt);
+                            });
+
+                            // Preselect manifest default if present
+                            if (def.default != null) {
+                                const desired = String(def.default);
+                                const match = Array.from(select.options).find((o) => o.value === desired);
+                                if (match) select.value = desired;
+                            } else if (select.options.length) {
+                                select.selectedIndex = 0; // ensure something is selected when not editing
+                            }
+                        }
+
+                        wrapper.appendChild(select);
+                        container.appendChild(wrapper);
+                        return;
+                    }
+
                     // default numeric/text handling for other types
                     input = document.createElement("input");
                     input.id = id;
