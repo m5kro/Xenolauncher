@@ -146,82 +146,182 @@
             const renderGamesGrid = (games) => {
                 const gamesGrid = document.getElementById("gamesGrid");
                 const header = document.querySelector(".content h1");
+                const isListView = !!GlobalSettings.loadGlobalSettings().listView;
+
+                // Toggle container class
+                gamesGrid.classList.remove("games-grid", "games-list");
+                gamesGrid.classList.add(isListView ? "games-list" : "games-grid");
 
                 gamesGrid.innerHTML = "";
 
                 if (Object.keys(games).length === 0) {
                     header.style.display = "block";
+                    return;
                 } else {
                     header.style.display = "none";
+                }
 
+                // List view
+                if (isListView) {
                     for (const [id, game] of Object.entries(games)) {
-                        const gameContainer = document.createElement("div");
-                        gameContainer.className = "game-container";
-                        gameContainer.dataset.gameId = id;
+                        const row = document.createElement("div");
+                        row.className = "game-row";
+                        row.dataset.gameId = id;
 
-                        const gameBox = document.createElement("div");
-                        gameBox.className = "game-box";
-
+                        // Left: icon or fallback letter
+                        const left = document.createElement("div");
+                        left.className = "row-left";
                         if (game.iconPath) {
-                            const gameIcon = document.createElement("img");
-                            gameIcon.src = `file://${game.iconPath}`;
-                            gameIcon.classList.add("game-icon");
-                            gameBox.appendChild(gameIcon);
+                            const img = document.createElement("img");
+                            img.src = `file://${game.iconPath}`;
+                            img.alt = `${game.gameTitle || "Game"} icon`;
+                            img.className = "row-icon";
+                            left.appendChild(img);
                         } else {
-                            gameBox.textContent = game.gameTitle.charAt(0).toUpperCase();
+                            const letter = document.createElement("div");
+                            letter.className = "row-fallback";
+                            letter.textContent = (game.gameTitle || "?").charAt(0).toUpperCase();
+                            left.appendChild(letter);
                         }
 
-                        const titleContainer = document.createElement("div");
-                        titleContainer.className = "title-container";
-
+                        // Middle: title
+                        const main = document.createElement("div");
+                        main.className = "row-main";
                         const title = document.createElement("div");
-                        title.className = "game-title";
-                        title.textContent = formatTitle(game.gameTitle);
+                        title.className = "row-title";
+                        title.title = game.gameTitle || "";
+                        title.textContent = game.gameTitle || "Untitled";
+                        main.appendChild(title);
+
+                        // Right: options-button only (no Play button)
+                        const actions = document.createElement("div");
+                        actions.className = "row-actions";
 
                         const optionsButton = document.createElement("button");
-                        optionsButton.className = "options-button";
+                        optionsButton.className = "options-button row-options-button";
+                        optionsButton.setAttribute("aria-label", "More options");
                         optionsButton.textContent = "⋮";
 
                         const optionsMenu = document.createElement("div");
                         optionsMenu.className = "options-menu";
                         optionsMenu.innerHTML = `
-          <button class="settings-option">Settings</button>
-          <button class="delete-option">Delete</button>
-        `;
+        <button class="settings-option">Settings</button>
+        <button class="delete-option">Delete</button>
+      `;
 
-                        titleContainer.appendChild(title);
-                        titleContainer.appendChild(optionsButton);
+                        actions.appendChild(optionsButton);
+                        actions.appendChild(optionsMenu);
 
-                        gameContainer.appendChild(gameBox);
-                        gameContainer.appendChild(titleContainer);
-                        gameContainer.appendChild(optionsMenu);
+                        row.appendChild(left);
+                        row.appendChild(main);
+                        row.appendChild(actions);
+                        gamesGrid.appendChild(row);
 
-                        gamesGrid.appendChild(gameContainer);
+                        const launch = () => Module.launchWithEngine(game, { openSubwindow });
 
-                        gameBox.addEventListener("click", () => {
-                            Module.launchWithEngine(game, { openSubwindow });
+                        // Launch when the row (anywhere) is clicked, except on menu/options-button
+                        row.addEventListener("click", (e) => {
+                            if (e.target.closest(".row-options-button") || e.target.closest(".options-menu")) return;
+                            launch();
                         });
 
-                        optionsButton.addEventListener("click", () => {
+                        optionsButton.addEventListener("click", (e) => {
+                            e.stopPropagation();
                             optionsMenu.classList.toggle("show");
                         });
 
-                        optionsMenu.querySelector(".settings-option").addEventListener("click", () => {
-                            openSubwindow("game-settings.html", gameContainer.dataset.gameId);
+                        optionsMenu.querySelector(".settings-option").addEventListener("click", (e) => {
+                            e.stopPropagation();
+                            openSubwindow("game-settings.html", row.dataset.gameId);
                         });
 
-                        optionsMenu.querySelector(".delete-option").addEventListener("click", () => {
-                            /* handled by bindDeleteButtons */
+                        // let bindDeleteButtons hook the handler, but don't trigger row launch
+                        optionsMenu.querySelector(".delete-option").addEventListener("click", (e) => {
+                            e.stopPropagation();
                         });
 
+                        // close menu on outside click
                         document.addEventListener("click", (event) => {
                             if (!optionsMenu.contains(event.target) && !optionsButton.contains(event.target)) {
                                 optionsMenu.classList.remove("show");
                             }
                         });
                     }
+                    bindDeleteButtons();
+                    return;
                 }
+
+                // Grid view
+                for (const [id, game] of Object.entries(games)) {
+                    const gameContainer = document.createElement("div");
+                    gameContainer.className = "game-container";
+                    gameContainer.dataset.gameId = id;
+
+                    const gameBox = document.createElement("div");
+                    gameBox.className = "game-box";
+
+                    if (game.iconPath) {
+                        const gameIcon = document.createElement("img");
+                        gameIcon.src = `file://${game.iconPath}`;
+                        gameIcon.classList.add("game-icon");
+                        gameBox.appendChild(gameIcon);
+                    } else {
+                        gameBox.textContent = (game.gameTitle || "?").charAt(0).toUpperCase();
+                    }
+
+                    const titleContainer = document.createElement("div");
+                    titleContainer.className = "title-container";
+
+                    const title = document.createElement("div");
+                    title.className = "game-title";
+                    title.textContent = formatTitle(game.gameTitle || "Untitled");
+
+                    const optionsButton = document.createElement("button");
+                    optionsButton.className = "options-button";
+                    optionsButton.textContent = "⋮";
+
+                    const optionsMenu = document.createElement("div");
+                    optionsMenu.className = "options-menu";
+                    optionsMenu.innerHTML = `
+        <button class="settings-option">Settings</button>
+        <button class="delete-option">Delete</button>
+      `;
+
+                    titleContainer.appendChild(title);
+                    titleContainer.appendChild(optionsButton);
+
+                    gameContainer.appendChild(gameBox);
+                    gameContainer.appendChild(titleContainer);
+                    gameContainer.appendChild(optionsMenu);
+
+                    gamesGrid.appendChild(gameContainer);
+
+                    gameBox.addEventListener("click", () => {
+                        Module.launchWithEngine(game, { openSubwindow });
+                    });
+
+                    optionsButton.addEventListener("click", () => {
+                        optionsMenu.classList.toggle("show");
+                    });
+
+                    optionsMenu.querySelector(".settings-option").addEventListener("click", () => {
+                        openSubwindow("game-settings.html", gameContainer.dataset.gameId);
+                    });
+
+                    document.addEventListener("click", (event) => {
+                        if (!optionsMenu.contains(event.target) && !optionsButton.contains(event.target)) {
+                            optionsMenu.classList.remove("show");
+                        }
+                    });
+                }
+
                 bindDeleteButtons();
+            };
+
+            // React to settings changed in subwindows
+            window.onSettingsUpdated = (settings) => {
+                // Re-render with the latest listView immediately, keeping the current search query
+                filterGames(currentQuery);
             };
 
             const formatTitle = (title) => {

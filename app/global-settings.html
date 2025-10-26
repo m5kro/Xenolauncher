@@ -30,6 +30,11 @@
         </div>
 
         <div class="setting-toggle">
+            <label for="listViewToggle">Enable List View for Games</label>
+            <input type="checkbox" id="listViewToggle" />
+        </div>
+
+        <div class="setting-toggle">
             <label for="deletionConfirmationToggle">Enable Deletion Confirmation</label>
             <input type="checkbox" id="deletionConfirmationToggle" />
         </div>
@@ -63,6 +68,7 @@
 
             const s = GlobalSettings.loadGlobalSettings();
             document.getElementById("darkThemeToggle").checked = s.darkTheme;
+            document.getElementById("listViewToggle").checked = s.listView;
             document.getElementById("deletionConfirmationToggle").checked = s.deletionConfirmation;
             document.getElementById("updatesStartupToggle").checked = s.checkUpdatesOnStartup;
             document.getElementById("moduleUpdatesStartupToggle").checked = s.checkModuleUpdatesOnStartup;
@@ -71,6 +77,7 @@
             document.getElementById("saveSettings").addEventListener("click", () => {
                 const updated = {
                     darkTheme: document.getElementById("darkThemeToggle").checked,
+                    listView: document.getElementById("listViewToggle").checked,
                     deletionConfirmation: document.getElementById("deletionConfirmationToggle").checked,
                     checkUpdatesOnStartup: document.getElementById("updatesStartupToggle").checked,
                     checkModuleUpdatesOnStartup: document.getElementById("moduleUpdatesStartupToggle").checked,

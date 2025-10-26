@@ -45,6 +45,7 @@
         const file = getSettingsPath();
         const defaults = {
             darkTheme: prefersDark(),
+            listView: false,
             deletionConfirmation: true,
             checkUpdatesOnStartup: true,
             checkModuleUpdatesOnStartup: true,

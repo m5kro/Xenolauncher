@@ -7,15 +7,18 @@
         nw.Window.open(fullUrl, { title: "Subwindow", resizable: true }, (newWin) => {
             newWin.on("loaded", () => {
                 // Allow child to instruct the opener to update theme
-                newWin.window.setMainWindow = (themeSettings) => {
+                newWin.window.setMainWindow = (settings) => {
                     try {
+                        // 1) Apply theme immediately (existing behavior)
                         if (window.GlobalSettings) {
-                            window.GlobalSettings.applyTheme(!!themeSettings.darkTheme);
+                            window.GlobalSettings.applyTheme(!!settings.darkTheme);
                         } else {
-                            document.documentElement.setAttribute(
-                                "data-theme",
-                                themeSettings.darkTheme ? "dark" : "light"
-                            );
+                            document.documentElement.setAttribute("data-theme", settings.darkTheme ? "dark" : "light");
+                        }
+
+                        // 2) Notify the main window that global settings changed
+                        if (typeof window.onSettingsUpdated === "function") {
+                            window.onSettingsUpdated(settings);
                         }
                     } catch (e) {
                         console.warn("setMainWindow failed", e);

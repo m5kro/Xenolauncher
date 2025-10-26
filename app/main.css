@@ -1,379 +1,517 @@
 /* --- Reset & Base Layout --- */
-html, body {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  font-family: Arial, sans-serif;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background-color: var(--background-color, #f9f9f9);
-  color: var(--text-color, #333);
-  overflow-y: auto;
-  padding-bottom: 60px; /* leave room for fixed footer */
+html,
+body {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--background-color, #f9f9f9);
+    color: var(--text-color, #333);
+    overflow-y: auto;
+    padding-bottom: 60px; /* leave room for fixed footer */
 }
 
-h1, h2, h3 {
-  text-align: center;
-  margin: 20px 0;
-  color: var(--header-color, #222);
+h1,
+h2,
+h3 {
+    text-align: center;
+    margin: 20px 0;
+    color: var(--header-color, #222);
 }
-h1 { font-size: 28px; }
-h2 { font-size: 24px; }
-h3 { font-size: 20px; }
+h1 {
+    font-size: 28px;
+}
+h2 {
+    font-size: 24px;
+}
+h3 {
+    font-size: 20px;
+}
 
 /* --- Content Area (index) --- */
 .content {
-  flex: 1;
-  padding: 20px;
-  background-color: var(--background-color, #f9f9f9);
-  color: var(--text-color, #333);
+    flex: 1;
+    padding: 20px;
+    background-color: var(--background-color, #f9f9f9);
+    color: var(--text-color, #333);
 }
 
 .header {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 20px;
 }
 
 /* Responsive search bar that scales with window width */
 .search-wrap {
-  width: min(800px, 100%);
+    width: min(800px, 100%);
 }
 
 .search-input {
-  width: 100%;
-  box-sizing: border-box;
+    width: 100%;
+    box-sizing: border-box;
 }
-
 
 /* --- Forms & Controls (shared across pages) --- */
 .form-item {
-  display: flex;
-  flex-direction: column;
-  margin: 20px;
+    display: flex;
+    flex-direction: column;
+    margin: 20px;
 }
 .form-toggle,
 .setting-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 20px;
 }
 .setting-item {
-  display: flex;
-  flex-direction: column;
-  margin: 20px;
+    display: flex;
+    flex-direction: column;
+    margin: 20px;
 }
 .setting-item button {
-  width: 100%;
-  box-sizing: border-box;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 label {
-  margin-bottom: 5px;
-  font-size: 16px;
-  color: var(--label-color, #444);
+    margin-bottom: 5px;
+    font-size: 16px;
+    color: var(--label-color, #444);
 }
 
 .selector {
-  display: flex;
-  align-items: center;
+    display: flex;
+    align-items: center;
 }
 .selector input {
-  flex: 1;
-  margin-right: 10px;
+    flex: 1;
+    margin-right: 10px;
 }
 
 input[type="text"] {
-  padding: 10px;
-  font-size: 16px;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  outline: none;
-  transition: border-color 0.3s, background-color 0.3s, color 0.3s;
-  background-color: var(--input-bg-color, #fff);
-  color: var(--input-text-color, #000);
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    outline: none;
+    transition: border-color 0.3s, background-color 0.3s, color 0.3s;
+    background-color: var(--input-bg-color, #fff);
+    color: var(--input-text-color, #000);
 }
 input[type="text"]:focus {
-  border-color: var(--focus-color, #61dafb);
+    border-color: var(--focus-color, #61dafb);
 }
 
 input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
+    width: 20px;
+    height: 20px;
 }
 
 select {
-  padding: 10px;
-  font-size: 16px;
-  border: 1px solid var(--text-color, #333);
-  border-radius: 5px;
-  outline: none;
-  background-color: var(--background-color, #f9f9f9);
-  color: var(--text-color, #333);
-  transition: border-color 0.3s, box-shadow 0.3s, background-color 0.3s, color 0.3s;
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid var(--text-color, #333);
+    border-radius: 5px;
+    outline: none;
+    background-color: var(--background-color, #f9f9f9);
+    color: var(--text-color, #333);
+    transition: border-color 0.3s, box-shadow 0.3s, background-color 0.3s, color 0.3s;
 }
-select:hover, select:focus {
-  border-color: var(--focus-color, #61dafb);
-  box-shadow: 0 0 5px var(--focus-color, #61dafb);
+select:hover,
+select:focus {
+    border-color: var(--focus-color, #61dafb);
+    box-shadow: 0 0 5px var(--focus-color, #61dafb);
 }
 option {
-  background-color: var(--background-color, #f9f9f9);
-  color: var(--text-color, #333);
+    background-color: var(--background-color, #f9f9f9);
+    color: var(--text-color, #333);
 }
 
 /* --- Buttons --- */
 button {
-  font-size: 14px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s, transform 0.1s;
+    font-size: 14px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.1s;
 }
 .secondary-button {
-  background-color: var(--button-bg-color-secondary, #e0e0e0);
-  color: var(--button-text-color-secondary, #333);
-  border: none;
-  padding: 10px 20px;
-  font-size: 16px;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.3s;
+    background-color: var(--button-bg-color-secondary, #e0e0e0);
+    color: var(--button-text-color-secondary, #333);
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
 }
 .secondary-button:hover {
-  background-color: var(--button-hover-bg-color-secondary, #d6d6d6);
+    background-color: var(--button-hover-bg-color-secondary, #d6d6d6);
 }
 .primary-button {
-  background-color: var(--button-bg-color-primary, #61dafb);
-  color: var(--button-text-color-primary, #fff);
-  border: none;
-  padding: 10px 20px;
-  font-size: 16px;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.3s;
+    background-color: var(--button-bg-color-primary, #61dafb);
+    color: var(--button-text-color-primary, #fff);
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
 }
 .primary-button:hover {
-  transform: scale(1.05);
-  background-color: var(--button-hover-bg-color-primary, #21a1f1);
+    transform: scale(1.05);
+    background-color: var(--button-hover-bg-color-primary, #21a1f1);
 }
 .primary-button:active {
-  transform: scale(0.98);
+    transform: scale(0.98);
 }
 
 /* --- Footer (fixed action bar) --- */
 /* Footer: layout only */
 .footer {
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  background-color: var(--footer-bg-color, #282c34);
-  display: flex;
-  justify-content: center;
-  padding: 10px;
-  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
-  z-index: 1000;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    background-color: var(--footer-bg-color, #282c34);
+    display: flex;
+    justify-content: center;
+    padding: 10px;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
 }
 .footer button {
-  margin: 0 10px;
-  padding: 10px 20px;
-  font-size: 16px;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.3s, transform 0.1s;
+    margin: 0 10px;
+    padding: 10px 20px;
+    font-size: 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.1s;
 }
 
 /* --- Index: Games Grid --- */
 .games-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 100px);
-  gap: 20px;
-  padding: 20px;
-  justify-items: start;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 100px);
+    gap: 20px;
+    padding: 20px;
+    justify-items: start;
 }
 .game-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-  padding-bottom: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding-bottom: 30px;
 }
 .game-box {
-  width: 100px;
-  height: 150px;
-  background-color: var(--button-bg-color, var(--button-bg-color-primary, #61dafb));
-  color: var(--button-text-color, var(--button-text-color-primary, #fff));
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  cursor: pointer;
-  transition: transform 0.3s, background-color 0.3s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    width: 100px;
+    height: 150px;
+    background-color: var(--button-bg-color, var(--button-bg-color-primary, #61dafb));
+    color: var(--button-text-color, var(--button-text-color-primary, #fff));
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: transform 0.3s, background-color 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .game-box:hover {
-  transform: scale(1.05);
-  background-color: var(--button-hover-bg-color, var(--button-hover-bg-color-primary, #21a1f1));
+    transform: scale(1.05);
+    background-color: var(--button-hover-bg-color, var(--button-hover-bg-color-primary, #21a1f1));
 }
-.game-box:active { transform: scale(0.98); }
+.game-box:active {
+    transform: scale(0.98);
+}
 .game-title {
-  margin-top: 8px;
-  font-size: 14px;
-  font-weight: normal;
-  text-align: center;
-  position: absolute;
-  top: 0;
-  width: 100%;
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: normal;
+    text-align: center;
+    position: absolute;
+    top: 0;
+    width: 100%;
 }
 .game-icon {
-  max-height: 100%;
-  max-width: 100%;
-  object-fit: contain;
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
 }
 .title-container {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: relative;
-  width: 100%;
-  z-index: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    width: 100%;
+    z-index: 0;
 }
 .options-button {
-  background: none;
-  position: absolute;
-  top: 0;
-  right: -5px;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: var(--options-button-color, #333);
+    background: none;
+    position: absolute;
+    top: 0;
+    right: -5px;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--options-button-color, #333);
 }
 .options-menu {
-  display: none;
-  top: 80px;
-  right: 0;
-  position: absolute;
-  background-color: var(--menu-bg-color, #282c34);
-  color: var(--menu-text-color, #fff);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-  z-index: 1;
-  border-radius: 8px;
+    display: none;
+    top: 80px;
+    right: 0;
+    position: absolute;
+    background-color: var(--menu-bg-color, #282c34);
+    color: var(--menu-text-color, #fff);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    z-index: 1;
+    border-radius: 8px;
 }
-.options-menu.show { display: block; }
+.options-menu.show {
+    display: block;
+}
 .options-menu button {
-  background: none;
-  border: none;
-  padding: 10px;
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  color: var(--menu-button-text-color, #fff);
+    background: none;
+    border: none;
+    padding: 10px;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    color: var(--menu-button-text-color, #fff);
 }
 .options-menu button:hover {
-  background-color: var(--menu-button-hover-bg-color, #3a3f47);
-  border-radius: 8px;
+    background-color: var(--menu-button-hover-bg-color, #3a3f47);
+    border-radius: 8px;
+}
+
+/* --- List View --- */
+.games-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px;
+}
+
+.game-row {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    background-color: var(--table-bg-color, #fff);
+    color: var(--text-color, #333);
+    border-radius: 12px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    padding: 10px 12px;
+    transition: transform 0.3s, background-color 0.3s;
+    cursor: pointer;
+}
+
+.row-left {
+    width: 64px;
+    height: 64px;
+    border-radius: 10px;
+    background-color: var(--button-bg-color, var(--button-bg-color-primary, #61dafb));
+    color: var(--button-text-color, var(--button-text-color-primary, #fff));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.row-left .row-icon {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+.row-left .row-fallback {
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.row-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
+}
+.row-title {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-color, #333);
+}
+.row-subtitle {
+    font-size: 12px;
+    opacity: 0.8;
+    color: var(--label-color, #444);
+}
+
+.row-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    cursor: default;
+}
+
+.row-options-button {
+    background: none;
+    position: relative;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--options-button-color, #333);
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+}
+.row-options-button:hover {
+    background-color: var(--row-hover-bg, #f5f5f5);
+}
+
+.games-list .options-menu {
+    position: absolute;
+    top: calc(100%);
+    top: 50%;
+    right: calc(100% + 8px);
+    transform: translateY(-50%);
+    min-width: 160px;
+    border-radius: 10px;
+    z-index: 10;
+}
+
+/* Hover & active feedback */
+.game-row:hover {
+    transform: scale(1.05);
+    background-color: color-mix(in srgb, var(--table-bg-color, #fff) 90%, var(--focus-color, #61dafb) 10%);
+}
+.game-row:active {
+    transform: scale(0.98);
+}
+
+/* Dark theme adjustments for list view */
+[data-theme="dark"] .game-row {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+[data-theme="dark"] .row-options-button:hover {
+    background-color: var(--row-hover-bg, #2e3135);
 }
 
 /* --- Tables (module manager) --- */
-#modules-container { flex: 1; padding: 0 20px; }
+#modules-container {
+    flex: 1;
+    padding: 0 20px;
+}
 table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 20px auto;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-  background-color: var(--table-bg-color, #fff);
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px auto;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    background-color: var(--table-bg-color, #fff);
 }
-thead { background-color: var(--header-bg-color, #eaeaea); }
-th, td {
-  padding: 12px 15px;
-  text-align: left;
-  border-bottom: 1px solid #ddd;
-  color: var(--text-color, #333);
+thead {
+    background-color: var(--header-bg-color, #eaeaea);
 }
-th { font-weight: 600; }
-tbody tr:hover { background-color: var(--row-hover-bg, #f5f5f5); }
+th,
+td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+    color: var(--text-color, #333);
+}
+th {
+    font-weight: 600;
+}
+tbody tr:hover {
+    background-color: var(--row-hover-bg, #f5f5f5);
+}
 
 /* --- Theme Variables --- */
 [data-theme="light"] {
-  --background-color: #f9f9f9;
-  --text-color: #333;
-  --header-color: #222;
-  --label-color: #444;
+    --background-color: #f9f9f9;
+    --text-color: #333;
+    --header-color: #222;
+    --label-color: #444;
 
-  /* Footer */
-  --footer-bg-color: #282c34;
+    /* Footer */
+    --footer-bg-color: #282c34;
 
-  /* Buttons - unified */
-  --button-bg-color-primary: #61dafb;
-  --button-text-color-primary: #fff;
-  --button-hover-bg-color-primary: #21a1f1;
+    /* Buttons - unified */
+    --button-bg-color-primary: #61dafb;
+    --button-text-color-primary: #fff;
+    --button-hover-bg-color-primary: #21a1f1;
 
-  --button-bg-color-secondary: #e0e0e0;
-  --button-text-color-secondary: #333;
-  --button-hover-bg-color-secondary: #d6d6d6;
+    --button-bg-color-secondary: #e0e0e0;
+    --button-text-color-secondary: #333;
+    --button-hover-bg-color-secondary: #d6d6d6;
 
-  /* Legacy / index compatibility */
-  --button-bg-color: var(--button-bg-color-primary);
-  --button-text-color: var(--button-text-color-primary);
-  --button-hover-bg-color: var(--button-hover-bg-color-primary);
+    /* Legacy / index compatibility */
+    --button-bg-color: var(--button-bg-color-primary);
+    --button-text-color: var(--button-text-color-primary);
+    --button-hover-bg-color: var(--button-hover-bg-color-primary);
 
-  /* Forms */
-  --input-bg-color: #fff;
-  --input-text-color: #000;
-  --focus-color: #61dafb;
+    /* Forms */
+    --input-bg-color: #fff;
+    --input-text-color: #000;
+    --focus-color: #61dafb;
 
-  /* Menus & tables */
-  --options-button-color: #333;
-  --menu-bg-color: #282c34;
-  --menu-text-color: #fff;
-  --menu-button-text-color: #fff;
-  --menu-button-hover-bg-color: #3a3f47;
-  --table-bg-color: #fff;
-  --header-bg-color: #eaeaea;
-  --row-hover-bg: #f5f5f5;
+    /* Menus & tables */
+    --options-button-color: #333;
+    --menu-bg-color: #282c34;
+    --menu-text-color: #fff;
+    --menu-button-text-color: #fff;
+    --menu-button-hover-bg-color: #3a3f47;
+    --table-bg-color: #fff;
+    --header-bg-color: #eaeaea;
+    --row-hover-bg: #f5f5f5;
 }
 
 [data-theme="dark"] {
-  --background-color: #181a1b;
-  --text-color: #eaeaea;
-  --header-color: #ddd;
-  --label-color: #bbb;
+    --background-color: #181a1b;
+    --text-color: #eaeaea;
+    --header-color: #ddd;
+    --label-color: #bbb;
 
-  /* Footer */
-  --footer-bg-color: #1f2225;
+    /* Footer */
+    --footer-bg-color: #1f2225;
 
-  /* Buttons - unified */
-  --button-bg-color-primary: #bb86fc;
-  --button-text-color-primary: #000;
-  --button-hover-bg-color-primary: #9a67ea;
+    /* Buttons - unified */
+    --button-bg-color-primary: #bb86fc;
+    --button-text-color-primary: #000;
+    --button-hover-bg-color-primary: #9a67ea;
 
-  --button-bg-color-secondary: #444;
-  --button-text-color-secondary: #eaeaea;
-  --button-hover-bg-color-secondary: #555;
+    --button-bg-color-secondary: #444;
+    --button-text-color-secondary: #eaeaea;
+    --button-hover-bg-color-secondary: #555;
 
-  /* Legacy / index compatibility */
-  --button-bg-color: var(--button-bg-color-primary);
-  --button-text-color: var(--button-text-color-primary);
-  --button-hover-bg-color: var(--button-hover-bg-color-primary);
+    /* Legacy / index compatibility */
+    --button-bg-color: var(--button-bg-color-primary);
+    --button-text-color: var(--button-text-color-primary);
+    --button-hover-bg-color: var(--button-hover-bg-color-primary);
 
-  /* Forms */
-  --input-bg-color: #1f2225;
-  --input-text-color: #eaeaea;
-  --focus-color: #bb86fc;
+    /* Forms */
+    --input-bg-color: #1f2225;
+    --input-text-color: #eaeaea;
+    --focus-color: #bb86fc;
 
-  /* Menus & tables */
-  --options-button-color: #eaeaea;
-  --menu-bg-color: #282c34;
-  --menu-text-color: #fff;
-  --menu-button-text-color: #fff;
-  --menu-button-hover-bg-color: #3a3f47;
-  --table-bg-color: #1f2225;
-  --header-bg-color: #2a2d31;
-  --row-hover-bg: #2e3135;
+    /* Menus & tables */
+    --options-button-color: #eaeaea;
+    --menu-bg-color: #282c34;
+    --menu-text-color: #fff;
+    --menu-button-text-color: #fff;
+    --menu-button-hover-bg-color: #3a3f47;
+    --table-bg-color: #1f2225;
+    --header-bg-color: #2a2d31;
+    --row-hover-bg: #2e3135;
 }
