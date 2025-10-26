@@ -301,6 +301,11 @@ button {
     border-radius: 8px;
 }
 
+.games-grid .game-title {
+  white-space: pre-line; /* respect \n inserted by formatTitle() */
+}
+
+
 /* --- List View --- */
 .games-list {
     display: flex;
