@@ -112,6 +112,72 @@
                 }
 
                 const defs = moduleManifests[engine].gameArgs || {};
+
+                // Helpers for multi-version
+                function modulesDir() {
+                    return path.join(GlobalSettings.getAppSupportDir(), "modules");
+                }
+
+                function readInstalledFromFs(argKey) {
+                    try {
+                        const p = path.join(modulesDir(), engine, "deps", argKey);
+                        if (!fs.existsSync(p)) return [];
+                        return fs
+                            .readdirSync(p, { withFileTypes: true })
+                            .filter((d) => d.isDirectory())
+                            .map((d) => d.name);
+                    } catch (e) {
+                        console.warn("readInstalledFromFs failed", e);
+                        return [];
+                    }
+                }
+
+                async function populateInstalledSelect(selectEl, def, argKey) {
+                    let versions = readInstalledFromFs(argKey);
+
+                    // Clear + populate the <select>
+                    selectEl.innerHTML = "";
+                    if (!versions.length) {
+                        const opt = document.createElement("option");
+                        opt.value = "";
+                        opt.textContent = "No versions installed";
+                        selectEl.appendChild(opt);
+                        selectEl.disabled = true;
+                        return; // nothing else to do
+                    }
+
+                    versions.forEach((v) => {
+                        const opt = document.createElement("option");
+                        opt.value = String(v);
+                        opt.textContent = String(v);
+                        selectEl.appendChild(opt);
+                    });
+                    selectEl.disabled = false;
+
+                    // Pick saved or default value if available
+                    try {
+                        const params = new URLSearchParams(window.location.search);
+                        const currentGameId = params.get("gameId");
+                        const allGames = (Games.loadGames && Games.loadGames()) || {};
+                        const saved =
+                            window.__editingMode &&
+                            currentGameId &&
+                            allGames[currentGameId] &&
+                            allGames[currentGameId].gameArgs
+                                ? allGames[currentGameId].gameArgs[argKey]
+                                : null;
+
+                        const desired = saved != null ? String(saved) : def.default != null ? String(def.default) : "";
+
+                        if (desired) {
+                            const match = Array.from(selectEl.options).find((o) => o.value === desired);
+                            if (match) selectEl.value = desired;
+                        }
+                    } catch (e) {
+                        console.warn("Failed to select saved/default version:", e);
+                    }
+                }
+
                 Object.entries(defs).forEach(([key, def]) => {
                     const id = `arg-${key}`;
                     const wrapper = document.createElement("div");
@@ -123,27 +189,66 @@
                     wrapper.appendChild(label);
 
                     let input;
+
                     if (def.type === "boolean") {
                         input = document.createElement("input");
                         input.type = "checkbox";
                         input.id = id;
                         input.checked = !!def.default;
+                        wrapper.appendChild(input);
+                        container.appendChild(wrapper);
+                        return;
+                    }
+
+                    if (def.type === "multi-version") {
+                        // selector + button row
+                        const row = document.createElement("div");
+                        row.className = "selector";
+
+                        const select = document.createElement("select");
+                        select.id = id;
+                        select.name = key;
+                        row.appendChild(select);
+
+                        const btn = document.createElement("button");
+                        btn.className = "secondary-button";
+                        btn.textContent = "Versions";
+                        btn.addEventListener("click", () => {
+                            const url = new URL("version-manager.html", window.location.href);
+                            url.searchParams.set("engine", engine);
+                            url.searchParams.set("argKey", key);
+                            url.searchParams.set("label", def.label || key);
+                            if (def["version-script"]) url.searchParams.set("script", def["version-script"]);
+                            openSubwindow(url.pathname + "?" + url.searchParams.toString(), null, async () => {
+                                // Refresh installed list after closing
+                                await populateInstalledSelect(select, def, key);
+                            });
+                        });
+                        row.appendChild(btn);
+
+                        wrapper.appendChild(row);
+                        container.appendChild(wrapper);
+
+                        // Fill the dropdown with installed versions
+                        populateInstalledSelect(select, def, key);
+                        return;
+                    }
+
+                    // default numeric/text handling for other types
+                    input = document.createElement("input");
+                    input.id = id;
+                    input.name = key;
+                    if (def.type === "int") {
+                        input.type = "number";
+                        input.step = "1";
+                        input.value = def.default != null ? def.default : "";
+                    } else if (def.type === "float") {
+                        input.type = "number";
+                        input.step = "any";
+                        input.value = def.default != null ? def.default : "";
                     } else {
-                        input = document.createElement("input");
-                        input.id = id;
-                        input.name = key;
-                        if (def.type === "int") {
-                            input.type = "number";
-                            input.step = "1";
-                            input.value = def.default != null ? def.default : "";
-                        } else if (def.type === "float") {
-                            input.type = "number";
-                            input.step = "any";
-                            input.value = def.default != null ? def.default : "";
-                        } else {
-                            input.type = "text";
-                            input.value = def.default || "";
-                        }
+                        input.type = "text";
+                        input.value = def.default || "";
                     }
                     wrapper.appendChild(input);
                     container.appendChild(wrapper);

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <script src="global-settings.js"></script>
+        <script>
+            (function () {
+                const s = GlobalSettings.loadGlobalSettings();
+                GlobalSettings.applyTheme(s.darkTheme);
+                const meta = document.createElement("meta");
+                meta.name = "color-scheme";
+                meta.content = s.darkTheme ? "dark light" : "light dark";
+                document.head.appendChild(meta);
+            })();
+        </script>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Version Manager</title>
+        <link rel="stylesheet" href="main.css" />
+    </head>
+    <body>
+        <h2 id="vmTitle">Version Manager</h2>
+
+        <div class="form-item">
+            <label for="installSelect">Install</label>
+            <div class="selector">
+                <select id="installSelect">
+                    <option>Loading…</option>
+                </select>
+                <button id="installBtn" class="primary-button">Install</button>
+            </div>
+        </div>
+
+        <div class="form-item">
+            <label for="uninstallSelect">Uninstall</label>
+            <div class="selector">
+                <select id="uninstallSelect">
+                    <option>Loading…</option>
+                </select>
+                <button id="uninstallBtn" class="secondary-button">Uninstall</button>
+            </div>
+        </div>
+
+        <div class="footer">
+            <button id="closeButton" class="secondary-button">Close</button>
+        </div>
+
+        <script>
+            (function () {
+                const fs = require("fs");
+                const path = require("path");
+                const os = require("os");
+                const { exec } = require("child_process");
+                let unzipper = null;
+                try {
+                    unzipper = require("unzipper");
+                } catch (_) {}
+
+                const params = new URLSearchParams(window.location.search);
+                const engine = params.get("engine") || "";
+                const argKey = params.get("argKey") || "version";
+                const scriptRel = params.get("script");
+                const label = params.get("label") || argKey.charAt(0).toUpperCase() + argKey.slice(1);
+
+                document.getElementById("vmTitle").textContent = `Version Manager — ${label}`;
+
+                function modulesDir() {
+                    return path.join(GlobalSettings.getAppSupportDir(), "modules");
+                }
+                function modulePath() {
+                    return path.join(modulesDir(), engine);
+                }
+                function depsRoot() {
+                    return path.join(modulePath(), "deps");
+                }
+                function argRoot() {
+                    return path.join(depsRoot(), argKey);
+                }
+
+                function loadVersionScript() {
+                    if (!scriptRel) return null;
+                    const p = path.join(modulePath(), scriptRel);
+                    if (!fs.existsSync(p)) return null;
+                    try {
+                        delete require.cache[require.resolve(p)];
+                    } catch (_) {}
+                    try {
+                        return require(p);
+                    } catch (e) {
+                        console.warn("Failed to require version script", e);
+                        return null;
+                    }
+                }
+
+                const VS = loadVersionScript();
+
+                async function getInstalled() {
+                    try {
+                        if (!fs.existsSync(argRoot())) return [];
+                        return fs
+                            .readdirSync(argRoot(), { withFileTypes: true })
+                            .filter((d) => d.isDirectory())
+                            .map((d) => d.name);
+                    } catch (e) {
+                        console.warn("read installed failed:", e);
+                        return [];
+                    }
+                }
+
+                async function getAvailable() {
+                    if (VS && typeof VS.getAvailable === "function") {
+                        try {
+                            const res = await VS.getAvailable({
+                                engine,
+                                argKey,
+                                modulesDir: modulesDir(),
+                            });
+                            if (res && typeof res === "object") return res;
+                        } catch (e) {
+                            console.warn("getAvailable() error:", e);
+                        }
+                    }
+                    return {};
+                }
+
+                function mapArchKey(builds) {
+                    if (!builds || typeof builds !== "object") return null;
+                    if (builds.universal) return "universal";
+                    const map = { x64: "x86_64", amd64: "x86_64", arm64: "arm64", ia32: "ia32" };
+                    const sys = map[os.arch()] || os.arch();
+                    if (builds[sys]) return sys;
+                    if (sys === "x64" && builds["x86_64"]) return "x86_64";
+                    if (sys === "x86_64" && builds["x64"]) return "x64";
+                    const firstKey = Object.keys(builds)[0];
+                    return firstKey || null;
+                }
+
+                async function downloadAndPlace(link, unzip, destDir) {
+                    fs.mkdirSync(destDir, { recursive: true });
+                    const res = await fetch(link);
+                    if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+                    const buf = Buffer.from(await res.arrayBuffer());
+                    const fileName = path.basename(new URL(link).pathname);
+                    const archivePath = path.join(destDir, fileName);
+                    fs.writeFileSync(archivePath, buf);
+                    if (unzip) {
+                        if (!unzipper) throw new Error('Requested unzip, but "unzipper" is not installed.');
+                        await new Promise((resolve, reject) => {
+                            fs.createReadStream(archivePath)
+                                .pipe(unzipper.Extract({ path: destDir }))
+                                .on("close", resolve)
+                                .on("error", reject);
+                        });
+                        fs.rmSync(archivePath, { force: true });
+                    }
+                    try {
+                        exec(`xattr -cr "${depsRoot()}"`, () => {});
+                    } catch (_) {}
+                    try {
+                        exec(`chmod -R 700 "${depsRoot()}"`, () => {});
+                    } catch (_) {}
+                }
+
+                async function refresh() {
+                    const [installed, available] = await Promise.all([getInstalled(), getAvailable()]);
+
+                    // filter out already installed
+                    const filteredAvailable = {};
+                    Object.entries(available || {}).forEach(([ver, builds]) => {
+                        if (!installed.includes(ver)) filteredAvailable[ver] = builds;
+                    });
+
+                    const installSel = document.getElementById("installSelect");
+                    installSel.innerHTML = "";
+                    const availKeys = Object.keys(filteredAvailable);
+                    if (!availKeys.length) {
+                        const opt = document.createElement("option");
+                        opt.value = "";
+                        opt.textContent = "No versions available";
+                        installSel.appendChild(opt);
+                        installSel.disabled = true;
+                    } else {
+                        availKeys
+                            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+                            .forEach((v) => {
+                                const opt = document.createElement("option");
+                                opt.value = v;
+                                opt.textContent = v;
+                                installSel.appendChild(opt);
+                            });
+                        installSel.disabled = false;
+                    }
+
+                    const uninstallSel = document.getElementById("uninstallSelect");
+                    uninstallSel.innerHTML = "";
+                    if (!installed.length) {
+                        const opt = document.createElement("option");
+                        opt.value = "";
+                        opt.textContent = "No versions installed";
+                        uninstallSel.appendChild(opt);
+                        uninstallSel.disabled = true;
+                    } else {
+                        installed
+                            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+                            .forEach((v) => {
+                                const opt = document.createElement("option");
+                                opt.value = v;
+                                opt.textContent = v;
+                                uninstallSel.appendChild(opt);
+                            });
+                        uninstallSel.disabled = false;
+                    }
+
+                    // attach handler closures to current datasets
+                    document.getElementById("installBtn").onclick = async () => {
+                        if (!availKeys.length) return;
+                        const version = installSel.value;
+                        if (!version) return;
+                        const btn = document.getElementById("installBtn");
+                        btn.disabled = true;
+                        const oldText = btn.textContent;
+                        btn.textContent = "Installing…";
+                        try {
+                            const builds = filteredAvailable[version];
+                            const key = mapArchKey(builds);
+                            if (!key || !builds[key]) throw new Error("No build available for this architecture.");
+                            const { link, unzip } = builds[key];
+                            const destDir = path.join(argRoot(), version);
+                            try {
+                                fs.rmSync(destDir, { recursive: true, force: true });
+                            } catch (_) {}
+                            await downloadAndPlace(link, !!unzip, destDir);
+                        } catch (e) {
+                            console.error(e);
+                            alert("Install failed: " + (e && e.message ? e.message : e));
+                        } finally {
+                            btn.textContent = oldText;
+                            btn.disabled = false;
+                            await refresh();
+                        }
+                    };
+
+                    document.getElementById("uninstallBtn").onclick = async () => {
+                        const version = document.getElementById("uninstallSelect").value;
+                        if (!version) return;
+                        const btn = document.getElementById("uninstallBtn");
+                        btn.disabled = true;
+                        const oldText = btn.textContent;
+                        btn.textContent = "Uninstalling…";
+                        try {
+                            const dir = path.join(argRoot(), version);
+                            fs.rmSync(dir, { recursive: true, force: true });
+                        } catch (e) {
+                            console.error(e);
+                            alert("Uninstall failed: " + (e && e.message ? e.message : e));
+                        } finally {
+                            btn.textContent = oldText;
+                            btn.disabled = false;
+                            await refresh();
+                        }
+                    };
+                }
+
+                document.getElementById("closeButton").addEventListener("click", () => nw.Window.get().close());
+
+                refresh();
+            })();
+        </script>
+    </body>
+</html>

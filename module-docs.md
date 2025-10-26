@@ -18,7 +18,7 @@ Every module must come with a manifest.json file to let the launcher know about 
 ## Not Yet Implemented
 | Name | Type | Description |
 | :------------: | :----------: | :---- |
-| `multi-version` | `boolean` | Does your module need/support different versions of a compatability layer |
+| `multi-version` | `type` | Does your module need/support different versions of a compatability layer |
 | `self-update` | `boolean` | Check for compatability layer updates on launch and prompt user (seperate from module update) |
 | `custom-settings` | `boolean` | Use a custom settings page (checks for settings.html) |
 | `custom-setup` | `boolean` | Use a custom setup page (checks for setup.html) |

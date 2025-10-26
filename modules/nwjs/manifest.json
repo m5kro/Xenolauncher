@@ -19,5 +19,12 @@
     "autodetect": {
         "files": ["nw.dll", "package.json"],
         "all_required": true
+    },
+    "gameArgs": {
+        "version": {
+            "type": "multi-version",
+            "label": "NW.js Version",
+            "version-script": "nwjs.js"
+        }
     }
 }

@@ -91,10 +91,18 @@ label {
 .selector {
     display: flex;
     align-items: center;
+    width: 100%;
 }
-.selector input {
-    flex: 1;
+.selector input[type="text"],
+.selector select {
+    flex: 1 1 auto;
+    min-width: 0;
     margin-right: 10px;
+}
+
+/* Buttons should not flex */
+.selector button {
+    flex: 0 0 auto;
 }
 
 input[type="text"] {
