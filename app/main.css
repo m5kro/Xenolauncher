@@ -305,7 +305,6 @@ button {
   white-space: pre-line; /* respect \n inserted by formatTitle() */
 }
 
-
 /* --- List View --- */
 .games-list {
     display: flex;

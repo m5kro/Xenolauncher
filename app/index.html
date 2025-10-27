@@ -333,26 +333,36 @@
             // check for module updates and optionally open Module Manager (installed only)
             async function promptForModuleUpdatesIfAny() {
                 try {
-                    // load settings to see if we should check
                     const settings = GlobalSettings.loadGlobalSettings();
                     if (!settings.checkModuleUpdatesOnStartup) return;
 
-                    // Only bother if we have any installed folders
                     const installedSet = Module.getInstalledModuleFolders();
                     if (!installedSet || installedSet.size === 0) return;
 
                     const localManifests = Module.readLocalManifests();
                     const remote = await Module.fetchRemoteManifestsList();
 
-                    const updates = remote.filter((r) => {
+                    // Full updates
+                    const fullUpdates = remote.filter((r) => {
                         if (!installedSet.has(r.folder)) return false;
                         const localVer = localManifests[r.folder]?.version;
                         return Module.hasUpdate(localVer, r.version);
                     });
 
-                    if (updates.length > 0) {
+                    // Dependency-only updates
+                    let depUpdateFolders = new Set();
+                    try {
+                        depUpdateFolders = await Module.checkDependencyUpdatesForFolders([...installedSet]);
+                    } catch (e) {
+                        console.warn("Dependency update scan failed:", e);
+                    }
+
+                    const needing = new Set(fullUpdates.map((m) => m.folder));
+                    for (const f of depUpdateFolders) needing.add(f);
+
+                    if (needing.size > 0) {
                         const wants = confirm(
-                            `Updates are available for ${updates.length} module${updates.length > 1 ? "s" : ""}. ` +
+                            `Updates are available for ${needing.size} module${needing.size > 1 ? "s" : ""}. ` +
                                 `Would you like to open the Module Manager to install them now?`
                         );
                         if (wants) {

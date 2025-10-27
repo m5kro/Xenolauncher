@@ -63,6 +63,7 @@
                 let moduleQuery = ""; // search text
                 let moduleManifests = {}; // local manifests keyed by folder
                 let showInstalledOnly = false;
+                let depUpdatesSet = new Set();
 
                 const searchInput = document.getElementById("moduleSearch");
                 const installedOnlyCb = document.getElementById("installedOnly");
@@ -123,6 +124,14 @@
                         installedSet = Module.getInstalledModuleFolders();
                         moduleManifests = Module.readLocalManifests();
 
+                        // Pre-scan installed modules for dependency updates
+                        try {
+                            depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]);
+                        } catch (scanErr) {
+                            console.warn("Dependency update scan failed:", scanErr);
+                            depUpdatesSet = new Set();
+                        }
+
                         allModules = manifests.sort((a, b) => a.name.localeCompare(b.name));
                         filterModules(moduleQuery);
                     } catch (err) {
@@ -132,9 +141,14 @@
 
                 function sortByUpdateThenName(list) {
                     return list.slice().sort((a, b) => {
-                        const aHasUpdate = Module.hasUpdate(moduleManifests[a.folder]?.version, a.version);
-                        const bHasUpdate = Module.hasUpdate(moduleManifests[b.folder]?.version, b.version);
-                        if (aHasUpdate !== bHasUpdate) return aHasUpdate ? -1 : 1;
+                        const aHasFull = Module.hasUpdate(moduleManifests[a.folder]?.version, a.version);
+                        const bHasFull = Module.hasUpdate(moduleManifests[b.folder]?.version, b.version);
+
+                        // Consider dep updates if no full update
+                        const aHasAny = aHasFull || depUpdatesSet.has(a.folder);
+                        const bHasAny = bHasFull || depUpdatesSet.has(b.folder);
+
+                        if (aHasAny !== bHasAny) return aHasAny ? -1 : 1;
                         return a.name.localeCompare(b.name);
                     });
                 }
@@ -161,19 +175,31 @@
                     return btn;
                 }
 
-                function makeUpdateButton(folder) {
+                function makeUpdateButton(folder, opts = { full: false }) {
                     const btn = document.createElement("button");
                     btn.className = "primary-button";
                     btn.textContent = "Update";
                     btn.addEventListener("click", async () => {
                         btn.disabled = true;
-                        btn.textContent = "Updating…";
+                        btn.textContent = opts.full ? "Updating…" : "Updating deps…"; // NEW
                         try {
-                            Module.uninstallModule(folder);
-                            installedSet.delete(folder);
-                            await Module.installModule(folder);
-                            installedSet.add(folder);
+                            if (opts.full) {
+                                // Full module update (existing behavior)
+                                Module.uninstallModule(folder);
+                                installedSet.delete(folder);
+                                await Module.installModule(folder);
+                                installedSet.add(folder);
+                            } else {
+                                // dep-only update
+                                await Module.updateDependencies(folder);
+                            }
+
+                            // Refresh local manifests and depUpdatesSet
                             moduleManifests = Module.readLocalManifests();
+                            try {
+                                depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]); // NEW
+                            } catch {}
+
                             btn.replaceWith(makeUninstallOrUpdateButton(folder));
                             filterModules(moduleQuery);
                         } catch (e) {
@@ -211,9 +237,15 @@
                 function makeUninstallOrUpdateButton(folder) {
                     const remote = allModules.find((m) => m.folder === folder);
                     const remoteVer = remote?.version || "N/A";
-                    return Module.hasUpdate(moduleManifests[folder]?.version, remoteVer)
-                        ? makeUpdateButton(folder)
-                        : makeUninstallButton(folder);
+                    const localVer = moduleManifests[folder]?.version;
+
+                    const hasFull = Module.hasUpdate(localVer, remoteVer);
+
+                    // Prefer full update, otherwise show dep-update
+                    if (hasFull) return makeUpdateButton(folder, { full: true });
+                    if (depUpdatesSet.has(folder)) return makeUpdateButton(folder, { full: false });
+
+                    return makeUninstallButton(folder);
                 }
 
                 function renderTable(mods, installed) {
