@@ -1,12 +1,11 @@
 {
     "name": "NW.js",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "A module to launch NW.js native games like RPG Maker MV and MZ.",
     "author": "m5kro",
     "license": "CC BY-NC-SA 4.0",
-    "updates": true,
     "dependencies": {
-        "nwjs": {
+        "version/v0.101.0": {
             "x86_64": {
                 "link": "https://dl.nwjs.io/v0.101.0/nwjs-sdk-v0.101.0-osx-x64.zip",
                 "unzip": true
@@ -26,16 +25,6 @@
             "type": "multi-version",
             "label": "NW.js Version",
             "version-script": "nwjs.js"
-        },
-        "testdropdown": {
-            "type": "dropdown",
-            "label": "test",
-            "default": "option2",
-            "options": [
-                {"label": "Option 1", "value": "option1"},
-                {"label": "Option 2", "value": "option2"},
-                {"label": "Option 3", "value": "option3"}
-            ]
         }
     }
 }

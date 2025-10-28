@@ -6,8 +6,8 @@ const launch = (gamePath, gameFolder, gameArgs) => {
     const { exec } = require('child_process');
     const fs = require('fs');
     const os = require('os');
-    // will be changed later when multiple versions are supported
-    nwjsPath = path.join(os.homedir(), 'Library', 'Application Support', 'xenolauncher', 'modules', 'nwjs', 'deps', 'nwjs', 'nwjs-sdk-v0.101.0-osx-' + os.arch(), 'nwjs.app', 'Contents', 'MacOS', 'nwjs');
+    
+    nwjsPath = path.join(os.homedir(), 'Library', 'Application Support', 'xenolauncher', 'modules', 'nwjs', 'deps', 'version', gameArgs.version, 'nwjs-sdk-' + gameArgs.version + '-osx-' + os.arch(), 'nwjs.app', 'Contents', 'MacOS', 'nwjs');
     
     // Check package.json in the game directory for a name if there isn't then give it one
     const packageJsonPath = path.join(gameFolder, 'package.json');
