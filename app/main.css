@@ -405,11 +405,11 @@ button {
 
 /* Hover & active feedback */
 .game-row:hover {
-    transform: scale(1.05);
+    transform: scale(1.01);
     background-color: color-mix(in srgb, var(--table-bg-color, #fff) 90%, var(--focus-color, #61dafb) 10%);
 }
 .game-row:active {
-    transform: scale(0.98);
+    transform: scale(0.998);
 }
 
 /* Dark theme adjustments for list view */
