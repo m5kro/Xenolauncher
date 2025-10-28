@@ -30,6 +30,7 @@ Some of these can still be used with wine<br>
 1. Dark mode
 2. Search bar
 3. Autodetect game type
+4. Check for updates
 
 # Planned Features/TODO (No Particular Order)
 1. Auto Read Game Folders
@@ -37,10 +38,10 @@ Some of these can still be used with wine<br>
 3. Pull from game database
 4. Pull settings from database
 5. Categories/Tags
-6. Check for updates
-7. Better error correction/tracking
-8. Different/3rd party module repos
-9. Better module documentation/wiki
+6. Better error correction/tracking
+7. Different/3rd party module repos
+8. Better module documentation/wiki
+9. Fix issue where all multi versions are deleted during a full update
 
 # License
 ## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
