@@ -14,6 +14,18 @@
                 "link": "https://dl.nwjs.io/v0.101.0/nwjs-sdk-v0.101.0-osx-arm64.zip",
                 "unzip": true
             }
+        },
+        "cheat-js": {
+            "universal": {
+                "link": "https://raw.githubusercontent.com/emerladCoder/RPG-Maker-MV-Cheat-Menu-Plugin/refs/heads/master/Cheat_Menu/www/js/plugins/Cheat_Menu.js",
+                "unzip": false
+            }
+        },
+        "cheat-css": {
+            "universal": {
+                "link": "https://raw.githubusercontent.com/emerladCoder/RPG-Maker-MV-Cheat-Menu-Plugin/refs/heads/master/Cheat_Menu/www/js/plugins/Cheat_Menu.css",
+                "unzip": false
+            }
         }
     },
     "autodetect": {
@@ -21,6 +33,11 @@
         "all_required": true
     },
     "gameArgs": {
+        "cheat": {
+            "type": "boolean",
+            "label": "Enable Cheat Menu (Press 1 in game)",
+            "default": false
+        },
         "version": {
             "type": "multi-version",
             "label": "NW.js Version",
