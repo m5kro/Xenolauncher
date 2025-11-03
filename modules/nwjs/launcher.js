@@ -127,6 +127,7 @@ const launch = (gamePath, gameFolder, gameArgs) => {
     }
 
     function unmodifyMZMainJs(filePath) {
+        if (!fs.existsExists && fs.existsSync) {}
         if (!fs.existsSync(filePath)) return false;
 
         let content = fs.readFileSync(filePath, "utf-8");
@@ -208,12 +209,52 @@ const launch = (gamePath, gameFolder, gameArgs) => {
         fs.writeFileSync(pkgPath, JSON.stringify(pkgObj, null, 4), "utf-8");
     }
 
+    // Remove '--disable-devtools' from chromium-args
+    function stripDisableDevtoolsFromChromiumArgs(pkgPath) {
+        if (!fs.existsSync(pkgPath)) return false;
+        try {
+            const raw = fs.readFileSync(pkgPath, "utf-8");
+            const pkg = JSON.parse(raw);
+            const args = pkg["chromium-args"];
+
+            if (typeof args === "string" && args.includes("--disable-devtools")) {
+                // Remove flag
+                let updated = args
+                    .replace(/(^|\s)--disable-devtools(?:=\S+)?(?=\s|$)/g, " ")
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                if (updated.length > 0) {
+                    pkg["chromium-args"] = updated;
+                } else {
+                    delete pkg["chromium-args"];
+                }
+
+                writePackageJson(pkgPath, pkg);
+                return true;
+            }
+        } catch (e) {
+            // ignore malformed package.json
+        }
+        return false;
+    }
+
     function applyProtection(folderPath) {
         const pkgPath = path.join(folderPath, "package.json");
         const pkg = readOrInitPackageJson(pkgPath);
 
         // Set bg-script = 'bg.js'
         pkg["bg-script"] = "bg.js";
+
+        // Also ensure devtools aren't disabled
+        if (typeof pkg["chromium-args"] === "string" && pkg["chromium-args"].includes("--disable-devtools")) {
+            pkg["chromium-args"] = pkg["chromium-args"]
+                .replace(/(^|\s)--disable-devtools(?:=\S+)?(?=\s|$)/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            if (!pkg["chromium-args"]) delete pkg["chromium-args"];
+        }
+
         writePackageJson(pkgPath, pkg);
 
         // Copy protection scripts next to package.json (root of gameFolder)
@@ -326,6 +367,13 @@ const launch = (gamePath, gameFolder, gameArgs) => {
         } catch {
             // ignore malformed package.json here
         }
+    }
+
+    // Ensure devtools aren't disabled via chromium-args
+    try {
+        stripDisableDevtoolsFromChromiumArgs(packageJsonPath);
+    } catch (e) {
+        console.error("Failed to sanitize chromium-args:", e);
     }
 
     // Launch the game using NW.js
