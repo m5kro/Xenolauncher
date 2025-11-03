@@ -68,7 +68,6 @@ const launch = (gamePath, gameFolder, gameArgs) => {
     }
 
     function unmodifyMVMainJs(filePath) {
-        const fs = require("fs");
         if (!fs.existsSync(filePath)) return false;
 
         let content = fs.readFileSync(filePath, "utf-8");
@@ -128,7 +127,6 @@ const launch = (gamePath, gameFolder, gameArgs) => {
     }
 
     function unmodifyMZMainJs(filePath) {
-        const fs = require("fs");
         if (!fs.existsSync(filePath)) return false;
 
         let content = fs.readFileSync(filePath, "utf-8");
@@ -192,6 +190,88 @@ const launch = (gamePath, gameFolder, gameArgs) => {
         }
     }
 
+    // Protection helpers
+
+    function readOrInitPackageJson(pkgPath) {
+        if (fs.existsSync(pkgPath)) {
+            try {
+                return JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+            } catch {
+                // fall through to fresh init if unreadable
+            }
+        }
+        // Create a minimal package.json if missing or invalid
+        return { name: "Game" };
+    }
+
+    function writePackageJson(pkgPath, pkgObj) {
+        fs.writeFileSync(pkgPath, JSON.stringify(pkgObj, null, 4), "utf-8");
+    }
+
+    function applyProtection(folderPath) {
+        const pkgPath = path.join(folderPath, "package.json");
+        const pkg = readOrInitPackageJson(pkgPath);
+
+        // Set bg-script = 'bg.js'
+        pkg["bg-script"] = "bg.js";
+        writePackageJson(pkgPath, pkg);
+
+        // Copy protection scripts next to package.json (root of gameFolder)
+        const base = path.join(
+            os.homedir(),
+            "Library",
+            "Application Support",
+            "xenolauncher",
+            "modules",
+            "nwjs",
+            "deps"
+        );
+
+        const copies = [
+            { src: path.join(base, "bg", "bg.js"), dest: path.join(folderPath, "bg.js") },
+            {
+                src: path.join(base, "disable-child", "disable-child.js"),
+                dest: path.join(folderPath, "disable-child.js"),
+            },
+            { src: path.join(base, "disable-net", "disable-net.js"), dest: path.join(folderPath, "disable-net.js") },
+        ];
+
+        for (const { src, dest } of copies) {
+            try {
+                if (fs.existsSync(src)) fs.copyFileSync(src, dest);
+            } catch (e) {
+                console.error("Protection copy failed:", src, "->", dest, e);
+            }
+        }
+    }
+
+    function removeProtection(folderPath) {
+        const pkgPath = path.join(folderPath, "package.json");
+        if (fs.existsSync(pkgPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+                if ("bg-script" in pkg) {
+                    delete pkg["bg-script"];
+                    writePackageJson(pkgPath, pkg);
+                }
+            } catch (e) {
+                console.error("Failed updating package.json to remove bg-script:", e);
+            }
+        }
+
+        // Remove the scripts if present
+        for (const filename of ["bg.js", "disable-child.js", "disable-net.js"]) {
+            const p = path.join(folderPath, filename);
+            if (fs.existsSync(p)) {
+                try {
+                    fs.unlinkSync(p);
+                } catch (e) {
+                    /* ignore */
+                }
+            }
+        }
+    }
+
     // Apply or remove Cheat Menu
     try {
         if (gameArgs && gameArgs.cheat) {
@@ -204,7 +284,19 @@ const launch = (gamePath, gameFolder, gameArgs) => {
         console.error("Cheat Menu patching error:", e);
     }
 
-    nwjsPath = path.join(
+    // Apply/remove protection
+    try {
+        const disableProtection = !!(gameArgs && gameArgs.disableProtection);
+        if (!disableProtection) {
+            applyProtection(gameFolder);
+        } else {
+            removeProtection(gameFolder);
+        }
+    } catch (e) {
+        console.error("Protection setup error:", e);
+    }
+
+    const nwjsPath = path.join(
         os.homedir(),
         "Library",
         "Application Support",
@@ -221,15 +313,18 @@ const launch = (gamePath, gameFolder, gameArgs) => {
         "nwjs"
     );
 
-    // Check package.json in the game directory for a name if there isn't then give it one
+    // Check package.json in the game directory for a name; if there isn't one then give it one
     const packageJsonPath = path.join(gameFolder, "package.json");
     let gameName = "Game";
     if (fs.existsSync(packageJsonPath)) {
-        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-        if (!packageJson.name.trim()) {
-            // If the name is empty, give it a default name and write to the json file
-            packageJson.name = gameName;
-            fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 4));
+        try {
+            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+            if (!packageJson.name || !String(packageJson.name).trim()) {
+                packageJson.name = gameName;
+                fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 4));
+            }
+        } catch {
+            // ignore malformed package.json here
         }
     }
 
