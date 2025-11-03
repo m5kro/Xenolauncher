@@ -1,4 +1,6 @@
 // module.js (unified)
+// A heck ton of AI generated code below :P
+// js is not my strong suit
 (function () {
     const fs = require("fs");
     const path = require("path");
@@ -215,101 +217,95 @@
         if (fs.existsSync(localRoot)) fs.rmSync(localRoot, { recursive: true, force: true });
     }
 
-    // ===== Autodetect & launching ============================================
+    // ===== Autodetect =====================
+
+    // Normalizes a file extension (no leading dot, lowercase)
     function normalizeExt(ext) {
-        return (ext || "").trim().toLowerCase();
+        if (!ext) return "";
+        return String(ext).replace(/^\.+/, "").toLowerCase();
     }
-    function getPathExtLower(filePath) {
-        return normalizeExt(path.extname(filePath));
+
+    // Returns extension (no dot) from a path safely, even if it ends with a slash
+    function getPathExtLower(p) {
+        if (!p) return "";
+        let pp = String(p)
+            .trim()
+            .replace(/[\\/]+$/, "");
+        const base = path.basename(pp);
+        const idx = base.lastIndexOf(".");
+        return idx >= 0 ? base.slice(idx + 1).toLowerCase() : "";
     }
+
+    // Detects macOS .app bundles by extension only (no fs check)
     function isAppBundlePath(p) {
-        return p.toLowerCase().endsWith(".app") && fs.existsSync(p);
-    }
-    function gameDirForFiles(gamePath) {
-        if (!gamePath) return null;
-        if (isAppBundlePath(gamePath)) return gamePath;
-        try {
-            const s = fs.statSync(gamePath);
-            if (s.isDirectory()) return gamePath;
-            return path.dirname(gamePath);
-        } catch {
-            return path.dirname(gamePath);
-        }
+        return normalizeExt(getPathExtLower(p)) === "app";
     }
 
-    async function fetchModulesForAutodetect(repo = DEFAULT_REPO, installedSet = getInstalledModuleFolders()) {
-        const url = `${getRawBase(repo)}/autodetect-map.json`;
-        try {
-            const res = await fetch(url);
-            if (!res.ok) return [];
-            const rules = await res.json();
-            // only return autodetect info for installed engines
-            return Object.entries(rules)
-                .filter(([key]) => installedSet.has(key))
-                .map(([key, val]) => ({ key, ...val }));
-        } catch {
-            return [];
-        }
+    // For an executable path, return the directory to probe for files
+    function gameDirForFiles(exe) {
+        return isAppBundlePath(exe) ? String(exe).replace(/[\\/]+$/, "") : path.dirname(exe);
     }
 
-    function detectEngineFromAutodetectMap(game, rules) {
-        const dir = gameDirForFiles(game.gamePath);
-        if (!dir) return null;
+    /**
+     * Detect engine among *installed* modules using their manifests' `autodetect` block.
+     * Signature matches game-settings.html usage.
+     */
+    function detectEngineForPath(exe, moduleManifests) {
+        if (!exe) return null;
+        const extOnPath = normalizeExt(getPathExtLower(exe));
+        const dir = gameDirForFiles(exe);
 
-        const allFiles = [];
-        try {
-            const walk = (d) => {
-                const entries = fs.readdirSync(d, { withFileTypes: true });
-                for (const e of entries) {
-                    const p = path.join(d, e.name);
-                    if (e.isDirectory()) walk(p);
-                    else allFiles.push(p);
-                }
-            };
-            walk(dir);
-        } catch {
-            // ignore access errors
-        }
-
-        let bestScore = 0;
-        let bestKey = null;
+        let bestKey = null,
+            bestScore = 0,
+            bestTie = { fileMatches: -1, extMatch: false };
         const strongMatches = [];
 
-        for (const rule of rules) {
-            const { key, filePatterns = [], ext = [], requireAllFiles = false } = rule || {};
-            const hasExtRule = Array.isArray(ext) && ext.length > 0;
-            const extSet = new Set(ext.map((e) => normalizeExt(e)));
-            const extMatch = hasExtRule ? allFiles.some((f) => extSet.has(getPathExtLower(f))) : false;
+        for (const [key, manifest] of Object.entries(moduleManifests || {})) {
+            const ad = manifest.autodetect;
+            if (!ad) continue;
 
+            // extension(s)
+            const extListRaw = Array.isArray(ad.extensions) ? ad.extensions : ad.extension ? [ad.extension] : [];
+            const extList = extListRaw.map(normalizeExt).filter(Boolean);
+            const hasExtRule = extList.length > 0;
+            const extMatch = hasExtRule ? extList.includes(extOnPath) : false;
+
+            // file probes (relative paths in the manifest)
+            const files = Array.isArray(ad.files) ? ad.files : [];
             let fileMatches = 0;
-            let fileTotal = 0;
-            if (Array.isArray(filePatterns) && filePatterns.length) {
-                for (const patt of filePatterns) {
-                    try {
-                        const rx = new RegExp(patt, "i");
-                        fileTotal++;
-                        if (allFiles.some((f) => rx.test(f))) fileMatches++;
-                    } catch {
-                        // bad pattern, ignore
-                    }
+            const fileTotal = files.length;
+            if (fileTotal > 0) {
+                for (const rel of files) {
+                    const probe = path.join(dir, rel);
+                    if (fs.existsSync(probe)) fileMatches++;
                 }
             }
 
-            if (requireAllFiles === true) {
-                const allRequired = fileTotal > 0 && fileMatches === fileTotal;
-                if (allRequired) {
-                    const needExt = hasExtRule ? extMatch : true;
-                    if (needExt) strongMatches.push({ key, fileMatches, extMatch });
-                    continue;
-                }
+            const allRequired = !!ad.all_required;
+            if (allRequired) {
+                const needExt = hasExtRule ? extMatch : true;
+                const needFiles = fileTotal > 0 ? fileMatches === fileTotal : true;
+                if (needExt && needFiles) strongMatches.push({ key, fileMatches, extMatch });
+                continue;
             }
 
+            // scoring: 1 point if ext matches, plus fraction of files matched
             let score = 0;
             if (hasExtRule && extMatch) score += 1;
-            if (fileMatches > 0) score += fileMatches;
+            if (fileTotal > 0) score += fileMatches / fileTotal;
+
             if (score > bestScore) {
                 bestScore = score;
                 bestKey = key;
+                bestTie = { fileMatches, extMatch };
+            } else if (score === bestScore && score > 0) {
+                const better =
+                    fileMatches > bestTie.fileMatches ||
+                    (fileMatches === bestTie.fileMatches && extMatch && !bestTie.extMatch);
+                if (better) {
+                    bestKey = key;
+                    bestTie = { fileMatches, extMatch };
+                }
             }
         }
 
@@ -325,9 +321,98 @@
         return bestScore > 0 ? bestKey : null;
     }
 
-    async function detectEngineForPath(game, repo = DEFAULT_REPO, installedSet = getInstalledModuleFolders()) {
-        const rules = await fetchModulesForAutodetect(repo, installedSet);
-        return detectEngineFromAutodetectMap(game, rules);
+    /**
+     * Build a lightweight autodetect map for *non-installed* modules by reading remote manifests.
+     * This is used by game-settings.html for remote autodetect + "install now?" flow.
+     */
+    async function fetchModulesForAutodetect(repo = DEFAULT_REPO, installedSet = getInstalledModuleFolders()) {
+        const manifests = await fetchRemoteManifestsList(repo);
+        const map = {};
+        for (const m of manifests) {
+            if (!m.raw || !m.raw.autodetect) continue;
+            if (installedSet.has(m.folder)) continue; // only include non-installed ones
+            const ad = m.raw.autodetect;
+
+            const rawExts = Array.isArray(ad.extensions) ? ad.extensions : ad.extension ? [ad.extension] : [];
+            const extensions = rawExts.map((e) => String(e).replace(/^\.+/, "").toLowerCase()).filter(Boolean);
+
+            const files = Array.isArray(ad.files) ? ad.files : [];
+            const all_required = !!ad.all_required;
+
+            map[m.folder] = {};
+            if (extensions.length) map[m.folder].extensions = extensions;
+            if (files.length) map[m.folder].files = files;
+            if (typeof all_required === "boolean") map[m.folder].all_required = all_required;
+        }
+        return map;
+    }
+
+    /**
+     * Detect engine among a defs map (extensions/files) returned by fetchModulesForAutodetect.
+     * Signature matches game-settings.html usage.
+     */
+    function detectEngineFromAutodetectMap(exe, defsMap) {
+        if (!exe || !defsMap) return null;
+        const extOnPath = normalizeExt(getPathExtLower(exe));
+        const dir = gameDirForFiles(exe);
+
+        let bestKey = null,
+            bestScore = 0,
+            bestTie = { fileMatches: -1, extMatch: false };
+        const strongMatches = [];
+
+        for (const [key, ad] of Object.entries(defsMap)) {
+            const extList = Array.isArray(ad.extensions) ? ad.extensions.map(normalizeExt).filter(Boolean) : [];
+            const hasExtRule = extList.length > 0;
+            const extMatch = hasExtRule ? extList.includes(extOnPath) : false;
+
+            const files = Array.isArray(ad.files) ? ad.files : [];
+            let fileMatches = 0;
+            const fileTotal = files.length;
+            if (fileTotal > 0) {
+                for (const rel of files) {
+                    const probe = path.join(dir, rel);
+                    if (fs.existsSync(probe)) fileMatches++;
+                }
+            }
+
+            const allRequired = !!ad.all_required;
+            if (allRequired) {
+                const needExt = hasExtRule ? extMatch : true;
+                const needFiles = fileTotal > 0 ? fileMatches === fileTotal : true;
+                if (needExt && needFiles) strongMatches.push({ key, fileMatches, extMatch });
+                continue;
+            }
+
+            let score = 0;
+            if (hasExtRule && extMatch) score += 1;
+            if (fileTotal > 0) score += fileMatches / fileTotal;
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestKey = key;
+                bestTie = { fileMatches, extMatch };
+            } else if (score === bestScore && score > 0) {
+                const better =
+                    fileMatches > bestTie.fileMatches ||
+                    (fileMatches === bestTie.fileMatches && extMatch && !bestTie.extMatch);
+                if (better) {
+                    bestKey = key;
+                    bestTie = { fileMatches, extMatch };
+                }
+            }
+        }
+
+        if (strongMatches.length === 1) return strongMatches[0].key;
+        if (strongMatches.length > 1) {
+            strongMatches.sort((a, b) => {
+                if (b.fileMatches !== a.fileMatches) return b.fileMatches - a.fileMatches;
+                if (a.extMatch !== b.extMatch) return (b.extMatch ? 1 : 0) - (a.extMatch ? 1 : 0);
+                return 0;
+            });
+            return strongMatches[0].key;
+        }
+        return bestScore > 0 ? bestKey : null;
     }
 
     async function launchWithEngine(game, { openSubwindow } = {}) {
@@ -529,6 +614,151 @@
         await installOneDependency(folder, depName, builds);
     }
 
+    // Update module preserving multiversions
+
+    function safeReadJson(p) {
+        try {
+            if (!fs.existsSync(p)) return null;
+            return JSON.parse(fs.readFileSync(p, "utf8"));
+        } catch (e) {
+            console.warn("Failed to parse JSON:", p, e);
+            return null;
+        }
+    }
+
+    function extractMultiVersionKeys(manifest) {
+        const args = (manifest && manifest.gameArgs) || {};
+        return Object.entries(args)
+            .filter(([, def]) => def && def.type === "multi-version")
+            .map(([k]) => k);
+    }
+
+    function ensureDir(p) {
+        fs.mkdirSync(p, { recursive: true });
+    }
+
+    function copyDirSync(src, dest) {
+        const stat = fs.statSync(src);
+        if (stat.isDirectory()) {
+            ensureDir(dest);
+            for (const entry of fs.readdirSync(src)) {
+                const s = path.join(src, entry);
+                const d = path.join(dest, entry);
+                copyDirSync(s, d);
+            }
+        } else {
+            ensureDir(path.dirname(dest));
+            fs.copyFileSync(src, dest);
+        }
+    }
+
+    function moveDirOrCopy(src, dest) {
+        ensureDir(path.dirname(dest));
+        try {
+            fs.renameSync(src, dest); // fast if same volume
+        } catch (e) {
+            if (e && (e.code === "EXDEV" || e.code === "EPERM" || e.code === "EINVAL")) {
+                copyDirSync(src, dest);
+                fs.rmSync(src, { recursive: true, force: true });
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    async function fixQuarantineAndPerms(rootAbs) {
+        try {
+            const { exec } = require("child_process");
+            // best-effort; ignore errors on non-macOS
+            exec(`xattr -cr "${rootAbs}"`, () => {});
+            exec(`chmod -R 700 "${rootAbs}"`, () => {});
+        } catch {}
+    }
+
+    /**
+     * Full update that preserves every multi-version directory in deps/<argKey>/...
+     * If the updated manifest removes a multi-version variable entirely, its deps/<argKey> folder is deleted.
+     */
+    async function updateModulePreservingMultiversions(folder) {
+        const appSupport = GlobalSettings.getAppSupportDir(); // used throughout your pages to locate modules :contentReference[oaicite:5]{index=5}
+        const modRoot = path.join(appSupport, "modules", folder);
+        const depsRoot = path.join(modRoot, "deps");
+        const manifestPath = path.join(modRoot, "manifest.json");
+
+        // 1) Discover which multi-version roots to keep (from CURRENT/OLD manifest)
+        const oldManifest = safeReadJson(manifestPath) || {};
+        const oldMultiKeys = extractMultiVersionKeys(oldManifest); // e.g., ["version"] for NW.js
+        const toPreserve = [];
+        for (const key of oldMultiKeys) {
+            const p = path.join(depsRoot, key); // e.g., deps/version
+            if (fs.existsSync(p)) toPreserve.push({ key, abs: p });
+        }
+
+        // Create a temp stash outside the module dir
+        const stashRoot = path.join(appSupport, ".xeno-preserve", `${folder}-${Date.now()}`, "deps");
+        ensureDir(stashRoot);
+
+        // 2) Stash the preserved dirs (rename or copy)
+        for (const item of toPreserve) {
+            const dest = path.join(stashRoot, item.key);
+            moveDirOrCopy(item.abs, dest);
+        }
+
+        // 3) Do the update with your existing primitives
+        //    (we deliberately reuse uninstall+install, because install expects a clean root today) :contentReference[oaicite:6]{index=6}
+        try {
+            Module.uninstallModule(folder);
+        } catch (e) {
+            console.warn("uninstallModule failed (continuing):", e);
+        }
+        await Module.installModule(folder);
+
+        // 4) Check multi-version keys AFTER the update (new manifest)
+        const newManifest = safeReadJson(manifestPath) || {};
+        const newMultiKeys = new Set(extractMultiVersionKeys(newManifest)); // if key removed, we won't restore it
+
+        // 5) Restore preserved dirs whose multi-version variable still exists in the updated manifest
+        ensureDir(depsRoot);
+        for (const { key } of toPreserve) {
+            const stash = path.join(stashRoot, key);
+            if (!fs.existsSync(stash)) continue;
+
+            if (newMultiKeys.has(key)) {
+                const dest = path.join(depsRoot, key);
+                ensureDir(dest);
+
+                // Merge version subfolders back without overwriting any freshly created ones
+                if (fs.existsSync(stash)) {
+                    for (const name of fs.readdirSync(stash)) {
+                        const from = path.join(stash, name); // e.g., deps/<key>/<version>
+                        const to = path.join(dest, name);
+                        if (!fs.existsSync(to)) {
+                            moveDirOrCopy(from, to);
+                        }
+                    }
+                }
+            }
+            // Whether restored or not, clear the stash for this key
+            fs.rmSync(stash, { recursive: true, force: true });
+        }
+
+        // 6) Remove any deps/<key> that no longer has a multi-version variable in the new manifest
+        for (const { key } of toPreserve) {
+            if (!newMultiKeys.has(key)) {
+                const orphan = path.join(depsRoot, key);
+                try {
+                    fs.rmSync(orphan, { recursive: true, force: true });
+                } catch {}
+            }
+        }
+
+        // 7) Cleanup + best-effort permission fixes (mirrors Version Manager’s post‑install) :contentReference[oaicite:7]{index=7}
+        try {
+            fs.rmSync(path.join(appSupport, ".xeno-preserve"), { recursive: true, force: true });
+        } catch {}
+        await fixQuarantineAndPerms(depsRoot);
+    }
+
     // ===== Public API =========================================================
     window.Module = {
         // repo / paths
@@ -568,5 +798,8 @@
         updateDependencies,
         removeDependency,
         installDependency,
+
+        // multi-version preserving update
+        updateModulePreservingMultiversions,
     };
 })();

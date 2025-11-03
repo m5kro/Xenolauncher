@@ -184,10 +184,8 @@
                         btn.textContent = opts.full ? "Updating…" : "Updating deps…"; // NEW
                         try {
                             if (opts.full) {
-                                // Full module update (existing behavior)
-                                Module.uninstallModule(folder);
-                                installedSet.delete(folder);
-                                await Module.installModule(folder);
+                                // Full module update
+                                await Module.updateModulePreservingMultiversions(folder);
                                 installedSet.add(folder);
                             } else {
                                 // dep-only update
