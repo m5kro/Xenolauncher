@@ -68,15 +68,21 @@ const launch = (gamePath, gameFolder, gameArgs) => {
     }
 
     function unmodifyMVMainJs(filePath) {
+        const fs = require("fs");
         if (!fs.existsSync(filePath)) return false;
-        const linesToRemove = ["PluginManager._path= 'js/plugins/';", "PluginManager.loadScript('Cheat_Menu.js');"];
+
         let content = fs.readFileSync(filePath, "utf-8");
         const before = content;
-        for (const line of linesToRemove) {
-            // remove with or without trailing newline/spacing
-            const re = new RegExp("\\n?\\s*" + line.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + "\\s*\\n?", "g");
-            content = content.replace(re, "\\n");
-        }
+
+        const loadRe = new RegExp(
+            String.raw`\s*PluginManager\s*\.\s*loadScript\s*\(\s*(['"])[^'"]*Cheat_Menu\.js\1\s*\)\s*;?\s*`,
+            "g"
+        );
+        content = content.replace(loadRe, "\n");
+
+        const pathRe = /\s*PluginManager\s*\.\s*_path\s*=\s*(['"])js\/plugins\/?\1\s*;?\s*/g;
+        content = content.replace(pathRe, "\n");
+
         if (content !== before) {
             fs.writeFileSync(filePath, content, "utf-8");
             return true;
@@ -86,39 +92,69 @@ const launch = (gamePath, gameFolder, gameArgs) => {
 
     function modifyMZMainJs(filePath) {
         if (!fs.existsSync(filePath)) return false;
-        let content = fs.readFileSync(filePath, "utf-8");
+
+        let content;
+        try {
+            content = fs.readFileSync(filePath, "utf-8");
+        } catch (_e) {
+            return false;
+        }
+
         const url = "js/plugins/Cheat_Menu.js";
-        const re = /const\\s+scriptUrls\\s*=\\s*\\[(.*?)\\];/s;
+        const re = /const\s+scriptUrls\s*=\s*\[(.*?)\];/s;
         const m = content.match(re);
-        if (!m) return false;
-        if (m[1].includes(url)) return false;
-        let inner = m[1].trim();
-        if (inner.length > 0 && !inner.endsWith(",")) inner += ", ";
-        inner += `'${url}'`;
-        const replaced =
-            content.slice(0, m.index) + `const scriptUrls = [${inner}];` + content.slice(m.index + m[0].length);
-        fs.writeFileSync(filePath, replaced, "utf-8");
+        if (!m) {
+            // scriptUrls array not found
+            return false;
+        }
+
+        const inner = m[1]; // exact inner content between [ and ], including whitespace/newlines
+        if (inner.includes(url)) {
+            // already present
+            return false;
+        }
+
+        const newInner = `    "${url}",\n${inner}`;
+        const replacedMatch = m[0].replace(inner, newInner);
+
+        const newContent = content.slice(0, m.index) + replacedMatch + content.slice(m.index + m[0].length);
+
+        try {
+            fs.writeFileSync(filePath, newContent, "utf-8");
+        } catch (_e) {
+            return false;
+        }
         return true;
     }
 
     function unmodifyMZMainJs(filePath) {
+        const fs = require("fs");
         if (!fs.existsSync(filePath)) return false;
+
         let content = fs.readFileSync(filePath, "utf-8");
-        const url = "js/plugins/Cheat_Menu.js";
-        const re = /const\\s+scriptUrls\\s*=\\s*\\[(.*?)\\];/s;
-        const m = content.match(re);
+        const before = content;
+
+        // Find the scriptUrls array and remove any entry that ends with Cheat_Menu.js
+        const arrayRe = /const\s+scriptUrls\s*=\s*\[(.*?)\];/s;
+        const m = content.match(arrayRe);
         if (!m) return false;
-        // remove url and any trailing commas/spaces properly
-        let items = m[1];
-        // remove occurrences like 'url', or , 'url' or 'url',
-        const itemsNew = items
-            .replace(new RegExp("\\n?\\s*'" + url.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&") + "'\\s*,?\\n?", "g"), "")
-            .replace(/,\\s*,/g, ",") // fix double commas
-            .replace(/^\\s*,\\s*/, "") // leading comma
-            .replace(/\\s*,\\s*$/, ""); // trailing comma
+
+        let inner = m[1];
+
+        inner = inner.replace(/\s*,\s*(['"]).*?Cheat_Menu\.js\1\s*/g, ""); // , '...Cheat_Menu.js'
+        inner = inner.replace(/\s*(['"]).*?Cheat_Menu\.js\1\s*,\s*/g, ""); // '...Cheat_Menu.js',
+        inner = inner.replace(/\s*(['"]).*?Cheat_Menu\.js\1\s*/g, ""); // only item
+
+        // Clean up stray commas/spaces
+        inner = inner
+            .replace(/\s*,\s*,/g, ",")
+            .replace(/^\s*,\s*/, "")
+            .replace(/\s*,\s*$/, "");
+
         const replaced =
-            content.slice(0, m.index) + `const scriptUrls = [${itemsNew}];` + content.slice(m.index + m[0].length);
-        if (items !== itemsNew) {
+            content.slice(0, m.index) + `const scriptUrls = [${inner}];` + content.slice(m.index + m[0].length);
+
+        if (replaced !== before) {
             fs.writeFileSync(filePath, replaced, "utf-8");
             return true;
         }

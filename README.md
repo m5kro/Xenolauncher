@@ -41,7 +41,6 @@ Some of these can still be used with wine<br>
 6. Better error correction/tracking
 7. Different/3rd party module repos
 8. Better module documentation/wiki
-9. Fix issue where all multi versions are deleted during a full update
 
 # License
 ## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)

@@ -181,7 +181,7 @@
                     btn.textContent = "Update";
                     btn.addEventListener("click", async () => {
                         btn.disabled = true;
-                        btn.textContent = opts.full ? "Updating…" : "Updating deps…"; // NEW
+                        btn.textContent = opts.full ? "Updating…" : "Updating deps…";
                         try {
                             if (opts.full) {
                                 // Full module update
@@ -195,7 +195,7 @@
                             // Refresh local manifests and depUpdatesSet
                             moduleManifests = Module.readLocalManifests();
                             try {
-                                depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]); // NEW
+                                depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]);
                             } catch {}
 
                             btn.replaceWith(makeUninstallOrUpdateButton(folder));
