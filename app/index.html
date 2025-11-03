@@ -111,20 +111,23 @@
             };
 
             const handleDeleteButtonClick = (event) => {
-                const gameId = event.target.closest(".game-container").dataset.gameId;
+                const container = event.target.closest("[data-game-id]");
+                if (!container) {
+                    console.warn("Delete: no parent with data-game-id found", event.target);
+                    return;
+                }
+
+                const gameId = container.dataset.gameId;
                 const settings = GlobalSettings.loadGlobalSettings();
 
-                if (settings.deletionConfirmation) {
-                    if (confirm("Are you sure you want to delete this game?")) {
-                        const updated = Games.deleteGame(gameId);
-                        alert("Game deleted!");
-                        renderGamesGrid(updated);
-                    }
-                } else {
-                    const updated = Games.deleteGame(gameId);
-                    alert("Game deleted!");
-                    renderGamesGrid(updated);
-                }
+                const doDelete =
+                    !settings.deletionConfirmation || confirm("Are you sure you want to delete this game?");
+
+                if (!doDelete) return;
+
+                const updated = Games.deleteGame(gameId);
+                alert("Game deleted!");
+                renderGamesGrid(updated); // re-render will re-bind delete buttons
             };
 
             document.addEventListener("DOMContentLoaded", () => bindDeleteButtons());
