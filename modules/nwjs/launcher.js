@@ -337,6 +337,10 @@ const launch = (gamePath, gameFolder, gameArgs) => {
         console.error("Protection setup error:", e);
     }
 
+    if (!gameArgs || !gameArgs.version) {
+        gameArgs = { version: "0.101.0" };
+    }
+
     const nwjsPath = path.join(
         os.homedir(),
         "Library",

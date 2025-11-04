@@ -4,6 +4,32 @@
     "description": "A module to launch MKXP-Z native games like RPG Maker XP, VX, and VX Ace. (Not ready yet)",
     "author": "m5kro",
     "license": "CC BY-NC-SA 4.0",
+    "dependencies": {
+        "mkxpz": {
+            "universal": {
+                "link": "https://github.com/m5kro/mkxp-z/releases/download/launcher/Z-universal.zip",
+                "unzip": true
+            }
+        },
+        "RTP": {
+            "universal": {
+                "link": "https://github.com/m5kro/mkxp-z/releases/download/launcher/RTP.zip",
+                "unzip": true
+            }
+        },
+        "kawariki": {
+            "universal": {
+                "link": "https://github.com/m5kro/mkxp-z/releases/download/launcher/kawariki.zip",
+                "unzip": true
+            }
+        },
+        "soundfont": {
+            "universal": {
+                "link": "https://musical-artifacts.com/artifacts/841/GMGSx.SF2",
+                "unzip": false
+            }
+        }
+    },
     "autodetect": {
         "files": ["Game.ini", "Data", "Graphics", "Audio"],
         "all_required": true

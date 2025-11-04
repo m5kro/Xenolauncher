@@ -220,7 +220,10 @@
                         row.appendChild(actions);
                         gamesGrid.appendChild(row);
 
-                        const launch = () => Module.launchWithEngine(game, { openSubwindow });
+                        const launch = () => {
+                            Module.reconcileAndPersistGameArgs(row.dataset.gameId);
+                            Module.launchWithEngine(game, { openSubwindow });
+                        };
 
                         // Launch when the row (anywhere) is clicked, except on menu/options-button
                         row.addEventListener("click", (e) => {
@@ -235,6 +238,7 @@
 
                         optionsMenu.querySelector(".settings-option").addEventListener("click", (e) => {
                             e.stopPropagation();
+                            Module.reconcileAndPersistGameArgs(row.dataset.gameId);
                             openSubwindow("game-settings.html", row.dataset.gameId);
                         });
 
@@ -300,6 +304,7 @@
                     gamesGrid.appendChild(gameContainer);
 
                     gameBox.addEventListener("click", () => {
+                        Module.reconcileAndPersistGameArgs(gameContainer.dataset.gameId);
                         Module.launchWithEngine(game, { openSubwindow });
                     });
 
@@ -308,6 +313,7 @@
                     });
 
                     optionsMenu.querySelector(".settings-option").addEventListener("click", () => {
+                        Module.reconcileAndPersistGameArgs(gameContainer.dataset.gameId);
                         openSubwindow("game-settings.html", gameContainer.dataset.gameId);
                     });
 

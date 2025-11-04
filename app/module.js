@@ -759,6 +759,67 @@
         await fixQuarantineAndPerms(depsRoot);
     }
 
+    // Fix game args after module updates
+    function mergeGameArgsWithSchema(savedArgs, schema) {
+        const has = Object.prototype.hasOwnProperty;
+        const next = {};
+        const sArgs = savedArgs || {};
+        const sch = schema || {};
+
+        const ensureDefault = (spec) => {
+            if (Object.prototype.hasOwnProperty.call(spec, "default")) return spec.default;
+            if (spec.type === "boolean") return false; // sensible implicit default
+            return null; // no default
+        };
+
+        for (const [k, spec] of Object.entries(sch)) {
+            if (has.call(sArgs, k)) {
+                let v = sArgs[k];
+                switch (spec.type) {
+                    case "boolean":
+                        if (typeof v !== "boolean") v = ensureDefault(spec);
+                        break;
+                    case "number":
+                        if (typeof v !== "number" || Number.isNaN(v)) v = ensureDefault(spec);
+                        break;
+                    case "select":
+                        // if you use select/options, enforce membership
+                        if (typeof v !== "string" || (Array.isArray(spec.options) && !spec.options.includes(v))) {
+                            v = ensureDefault(spec);
+                        }
+                        break;
+                    default:
+                        // multi-version, text, etc. — accept as-is unless undefined
+                        if (v === undefined) v = ensureDefault(spec);
+                }
+                next[k] = v;
+            } else {
+                next[k] = ensureDefault(spec);
+            }
+        }
+        // keys not in schema are removed
+
+        const changed = JSON.stringify(sArgs) !== JSON.stringify(next);
+        return { merged: next, changed };
+    }
+
+    function reconcileAndPersistGameArgs(gameId) {
+        const games = Games.loadGames();
+        const game = games?.[gameId];
+        if (!game) return;
+
+        const manifests = Module.readLocalManifests();
+        const manifest = manifests?.[game.gameEngine];
+        if (!manifest?.gameArgs) return;
+
+        const { merged, changed } = Module.mergeGameArgsWithSchema(game.gameArgs, manifest.gameArgs);
+        if (changed) {
+            game.gameArgs = merged;
+            Games.saveGames(games);
+        }
+        return merged;
+    }
+
     // ===== Public API =========================================================
     window.Module = {
         // repo / paths
@@ -801,5 +862,9 @@
 
         // multi-version preserving update
         updateModulePreservingMultiversions,
+
+        // game args updater
+        mergeGameArgsWithSchema,
+        reconcileAndPersistGameArgs,
     };
 })();
