@@ -234,3 +234,4 @@ const launch = (gamePath, gameFolder, gameArgs = {}) => {
         if (stderr) console.error(stderr);
     });
 };
+exports.launch = launch;
