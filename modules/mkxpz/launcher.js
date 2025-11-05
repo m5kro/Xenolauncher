@@ -1,68 +1,236 @@
 // Launches RPG VX Ace, VX, and XP games using MKXP-Z
-// Auto detects the RTP version of the game and sets the correct values in the mkxp.json file
-// Uses the kawariki patches to fix some windows API calls
-// Still need to add and apply mkxpz advanced options
-const mkxpzLaunch = (gamePath, gameFolder, gameArgs) => {
-    const fs = require('fs');
-    const path = require('path');
-    const { exec } = require('child_process');
+const launch = (gamePath, gameFolder, gameArgs = {}) => {
+    const fs = require("fs");
+    const path = require("path");
+    const os = require("os");
+    const { exec } = require("child_process");
 
-    const mkxpzJsonPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'mkxpz', 'Z-Universal.app', 'Contents', 'Game', 'mkxp.json');
+    const mkxpzJsonPath = path.join(
+        os.homedir(),
+        "Library",
+        "Application Support",
+        "Xenolauncher",
+        "mkxpz",
+        "Z-Universal.app",
+        "Contents",
+        "Game",
+        "mkxp.json"
+    );
 
-    // Find the RTP version of the game
-    const getRtpValue = (folderPath) => {
-        const gameIniPath = path.join(folderPath, 'Game.ini');
+    // ---- small helpers ----
+    const ensureDir = (p) => {
         try {
-            const data = fs.readFileSync(gameIniPath, 'utf-8');
-            const lines = data.split('\n');
-            for (const line of lines) {
-                const match = line.match(/\s*rtp\s*=\s*(.*)/i);
-                if (match) {
-                    const rtpValue = match[1].trim().toLowerCase();
-                    if (rtpValue === 'standard') {
-                        return ['Standard', 1];
-                    } else if (rtpValue === 'rpgvx') {
-                        return ['RPGVX', 2];
-                    } else if (rtpValue === 'rpgvxace') {
-                        return ['RPGVXace', 3];
-                    } else {
-                        return [match[1].trim(), 1];
+            fs.mkdirSync(path.dirname(p), { recursive: true });
+        } catch (_) {}
+    };
+
+    const expandTilde = (p) => (typeof p === "string" && p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p);
+
+    const coerceScalar = (v) => {
+        if (typeof v !== "string") return v;
+        const lower = v.toLowerCase().trim();
+        if (lower === "true") return true;
+        if (lower === "false") return false;
+        if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+        return expandTilde(v);
+    };
+
+    const coerceValue = (v) => {
+        if (Array.isArray(v)) return v.map(coerceScalar);
+        if (v && typeof v === "object") {
+            // shallow coerce for simple objects
+            const out = {};
+            for (const [k, val] of Object.entries(v)) out[k] = coerceValue(val);
+            return out;
+        }
+        return coerceScalar(v);
+    };
+
+    // ---- Helper: map RGSS version number to [rtpName, rgssNum] ----
+    const mapRtpFromNumber = (n) => {
+        if (n === 1) return ["Standard", 1]; // RPG Maker XP
+        if (n === 2) return ["RPGVX", 2]; // RPG Maker VX
+        if (n === 3) return ["RPGVXace", 3]; // RPG Maker VX Ace
+        return null;
+    };
+
+    // ---- Helper: scan folder for RGSS*.dll and infer RTP ----
+    const detectFromDllsIn = (folderPath, whereLabel) => {
+        try {
+            const files = fs.readdirSync(folderPath);
+            for (const file of files) {
+                if (file.startsWith("RGSS") && file.toLowerCase().endsWith(".dll")) {
+                    const m = file.match(/(\d+)/);
+                    if (m) {
+                        console.info(`RGSS DLL file found ${whereLabel ? `in ${whereLabel}` : ""}.`);
+                        const digit = String(m[1])[0];
+                        const num = parseInt(digit, 10);
+                        const mapped = mapRtpFromNumber(num);
+                        if (mapped) return mapped;
+                        console.warn(`Unknown RTP value found in ${whereLabel || "folder"}: ${digit}`);
                     }
                 }
             }
-            console.warn('RTP value not found in Game.ini. Assuming Standard RTP (RPG XP).');
-        } catch (err) {
-            if (err.code === 'ENOENT') {
-                console.error(`Game.ini file not found in the folder: ${folderPath}`);
+        } catch (e) {
+            if (e && e.code === "ENOENT") {
+                console.warn(`${whereLabel || "Folder"} not found: ${e.message}`);
             } else {
-                console.error(`Error reading Game.ini file: ${err.message}`);
+                console.error(`Error scanning ${whereLabel || "folder"}: ${e?.message || e}`);
             }
         }
-        return ['Standard', 1];
+        return null;
     };
 
-    const RTP = getRtpValue(gameFolder);
-    const rtpPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'RTP', RTP[0]);
-    const kawarikiPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'kawariki', 'preload.rb');
-    const midiSoundFontPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'soundfonts', 'GMGSx.SF2');
-    
-    // Create the mkxp.json file with the correct values
-    mkxpzJson = {
-        "gameFolder": gameFolder,
-        "RTP": [rtpPath],
-        "midiSoundFont": midiSoundFontPath,
-        "preloadScript": [kawarikiPath],
-        "rgssVersion": RTP[1]
+    // ---- Detect RTP/RGSS version ----
+    const getRtpValue = (folderPath) => {
+        const gameIniPath = path.join(folderPath, "Game.ini");
+
+        // 1) Try Game.ini -> rtp=
+        try {
+            const data = fs.readFileSync(gameIniPath, "utf-8");
+            const lines = data.split(/\r?\n/);
+
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                const m = line.match(/^\s*rtp\s*=\s*(.*)/i);
+                if (m) {
+                    console.info("RTP value found.");
+                    const val = m[1].trim().toLowerCase();
+                    if (val === "standard") return ["Standard", 1];
+                    if (val === "rpgvx") return ["RPGVX", 2];
+                    if (val === "rpgvxace") return ["RPGVXace", 3];
+                    console.warn(`Unknown RTP value found in Game.ini: ${m[1]}`);
+                    break;
+                }
+            }
+
+            // 2) Try Game.ini -> library=... -> RGSS(\d+)
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                const m = line.match(/^\s*library\s*=\s*(.*)/i);
+                if (m) {
+                    console.info("Library value found.");
+                    const libVal = m[1];
+                    const n = libVal.match(/RGSS(\d+)/i);
+                    if (n) {
+                        const digit = String(n[1])[0];
+                        const num = parseInt(digit, 10);
+                        const mapped = mapRtpFromNumber(num);
+                        if (mapped) return mapped;
+                        console.warn(`Unknown RTP value found in Game.ini: ${digit}`);
+                    }
+                    break;
+                }
+            }
+
+            console.warn("RTP value not found in Game.ini, looking for dll files.");
+        } catch (err) {
+            if (err && err.code === "ENOENT") {
+                console.error(`Game.ini file not found in the folder: ${folderPath}`);
+            } else {
+                console.error(`Error reading Game.ini: ${err?.message || err}`);
+            }
+        }
+
+        // 3) Scan the game folder for RGSS*.dll
+        const fromRootDll = detectFromDllsIn(folderPath, "game folder");
+        if (fromRootDll) return fromRootDll;
+
+        console.warn("No RGSS DLL files found in the game folder, checking System folder.");
+
+        // 4) Scan System/ for RGSS*.dll
+        const systemPath = path.join(folderPath, "System");
+        const fromSystemDll = detectFromDllsIn(systemPath, "System folder");
+        if (fromSystemDll) return fromSystemDll;
+
+        console.warn("No RGSS DLL files found in the System folder, assuming Standard RTP.");
+        // 5) Default
+        console.info("Assuming Standard RTP.");
+        return ["Standard", 1];
     };
+
+    // ---- decide RGSS & RTP source ----
+    const rawRgssVersion = gameArgs?.rgssVersion;
+    const rgssVersionNum = rawRgssVersion === undefined ? 0 : parseInt(String(rawRgssVersion), 10);
+
+    let resolvedRtpTuple; // ["RPGVXace", 3] style
+    let finalRgssVersion;
+
+    if (rgssVersionNum === 0 || Number.isNaN(rgssVersionNum)) {
+        // auto-detect
+        resolvedRtpTuple = getRtpValue(gameFolder);
+        finalRgssVersion = resolvedRtpTuple[1];
+    } else {
+        // trust provided rgssVersion, infer RTP name from it
+        const mapped = mapRtpFromNumber(rgssVersionNum);
+        if (!mapped) {
+            // if somehow an invalid number was given
+            console.warn(`Unknown rgssVersion "${rawRgssVersion}", falling back to auto-detect.`);
+            resolvedRtpTuple = getRtpValue(gameFolder);
+            finalRgssVersion = resolvedRtpTuple[1];
+        } else {
+            resolvedRtpTuple = mapped;
+            finalRgssVersion = rgssVersionNum;
+        }
+    }
+
+    // ---- resolve RTP array ----
+    let rtpArray = Array.isArray(gameArgs?.RTP) ? gameArgs.RTP.filter(Boolean) : [];
+    rtpArray = rtpArray.map(expandTilde);
+
+    if (rtpArray.length === 0) {
+        const defaultRtpPath = path.join(
+            os.homedir(),
+            "Library",
+            "Application Support",
+            "Xenolauncher",
+            "mkxpz",
+            "deps",
+            "RTP",
+            resolvedRtpTuple[0]
+        );
+        rtpArray = [defaultRtpPath];
+    }
+
+    // ---- collect remaining gameArgs ----
+    const passthrough = {};
+    for (const [k, v] of Object.entries(gameArgs || {})) {
+        if (k === "rgssVersion" || k === "RTP") continue; // handled above
+        passthrough[k] = coerceValue(v);
+    }
+
+    // ---- assemble mkxp.json ----
+    const mkxpzJson = {
+        gameFolder,
+        RTP: rtpArray,
+        rgssVersion: finalRgssVersion,
+        ...passthrough,
+    };
+
+    ensureDir(mkxpzJsonPath);
     fs.writeFileSync(mkxpzJsonPath, JSON.stringify(mkxpzJson, null, 4));
 
-    // Launch the game using MKXP-Z
-    const mkxpzPath = path.join(os.homedir(), 'Library', 'Application Support', 'Xenolauncher', 'mkxpz', 'Z-Universal.app', 'Contents', 'MacOS', 'Z-Universal');
+    // ---- launch MKXP-Z ----
+    const mkxpzPath = path.join(
+        os.homedir(),
+        "Library",
+        "Application Support",
+        "Xenolauncher",
+        "mkxpz",
+        "deps",
+        "mkxpz",
+        "Z-Universal.app",
+        "Contents",
+        "MacOS",
+        "Z-Universal"
+    );
+
     exec(`"${mkxpzPath}"`, (err, stdout, stderr) => {
         if (err) {
             console.error(err);
             return;
         }
-        console.log(stdout);
+        if (stdout) console.log(stdout);
+        if (stderr) console.error(stderr);
     });
-}
+};
