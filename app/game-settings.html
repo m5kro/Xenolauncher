@@ -520,16 +520,17 @@
                 const defs = moduleManifests[engine]?.gameArgs || {};
                 const settingsObj = {};
                 Object.entries(defs).forEach(([key, def]) => {
-
                     // Special handling for array type
                     if (def.type === "array") {
                         const containerEl = document.getElementById(`arg-${key}-container`);
-                        if (!containerEl) {
-                            settingsObj[key] = [];
-                            return;
-                        }
+                        settingsObj[key] = []; // default
+                        if (!containerEl) return;
+
                         const inputs = Array.from(containerEl.querySelectorAll('.array-row input[type="text"]'));
-                        const values = inputs.map((i) => String(i.value));
+                        const values = inputs
+                            .map((i) => String(i.value).trim()) // normalize
+                            .filter((v) => v !== ""); // remove empty
+
                         settingsObj[key] = values;
                         return;
                     }
