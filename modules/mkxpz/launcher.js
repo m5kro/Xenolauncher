@@ -11,6 +11,8 @@ const launch = (gamePath, gameFolder, gameArgs = {}) => {
         "Application Support",
         "Xenolauncher",
         "mkxpz",
+        "deps",
+        "mkxpz",
         "Z-Universal.app",
         "Contents",
         "Game",
