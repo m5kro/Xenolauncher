@@ -276,6 +276,71 @@
                         return;
                     }
 
+                    if (def.type === "array") {
+                        const containerDiv = document.createElement("div");
+                        containerDiv.id = `${id}-container`;
+                        containerDiv.className = "array-container";
+
+                        // Associate label with the container for accessibility
+                        label.setAttribute("for", `${id}-container`);
+
+                        const list = document.createElement("div");
+                        list.className = "array-list";
+                        containerDiv.appendChild(list);
+
+                        const addBtn = document.createElement("button");
+                        addBtn.type = "button";
+                        addBtn.className = "secondary-button add-array-btn";
+                        addBtn.textContent = "Add value";
+                        containerDiv.appendChild(addBtn);
+
+                        function addArrayRow(val = "") {
+                            const row = document.createElement("div");
+                            row.className = "selector array-row";
+
+                            const txt = document.createElement("input");
+                            txt.type = "text";
+                            txt.value = String(val ?? "");
+                            row.appendChild(txt);
+
+                            const rm = document.createElement("button");
+                            rm.type = "button";
+                            rm.className = "secondary-button remove-array-item";
+                            rm.title = "Remove";
+                            rm.textContent = "−";
+                            rm.addEventListener("click", () => row.remove());
+                            row.appendChild(rm);
+
+                            list.appendChild(row);
+                        }
+
+                        let initialVals = [];
+                        try {
+                            const params = new URLSearchParams(window.location.search);
+                            const currentGameId = params.get("gameId");
+                            const allGames = (Games.loadGames && Games.loadGames()) || {};
+                            const saved =
+                                window.__editingMode &&
+                                currentGameId &&
+                                allGames[currentGameId] &&
+                                allGames[currentGameId].gameArgs
+                                    ? allGames[currentGameId].gameArgs[key]
+                                    : null;
+                            if (Array.isArray(saved)) initialVals = saved.map((v) => String(v));
+                            else if (Array.isArray(def.default)) initialVals = def.default.map((v) => String(v));
+                        } catch (e) {
+                            console.warn("array: couldn't retrieve saved/default values", e);
+                        }
+                        if (!initialVals.length) initialVals = [""];
+                        initialVals.forEach((v) => addArrayRow(v));
+
+                        addBtn.addEventListener("click", () => addArrayRow(""));
+
+                        wrapper.appendChild(containerDiv);
+                        container.appendChild(wrapper);
+                        return;
+                    }
+
                     // default numeric/text handling for other types
                     input = document.createElement("input");
                     input.id = id;
@@ -455,6 +520,20 @@
                 const defs = moduleManifests[engine]?.gameArgs || {};
                 const settingsObj = {};
                 Object.entries(defs).forEach(([key, def]) => {
+
+                    // Special handling for array type
+                    if (def.type === "array") {
+                        const containerEl = document.getElementById(`arg-${key}-container`);
+                        if (!containerEl) {
+                            settingsObj[key] = [];
+                            return;
+                        }
+                        const inputs = Array.from(containerEl.querySelectorAll('.array-row input[type="text"]'));
+                        const values = inputs.map((i) => String(i.value));
+                        settingsObj[key] = values;
+                        return;
+                    }
+
                     const el = document.getElementById(`arg-${key}`);
                     if (!el) return;
                     if (def.type === "boolean") settingsObj[key] = el.checked;

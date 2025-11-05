@@ -52,7 +52,7 @@ These options will be passed into your launch function.
 | Name | Type | Description |
 | :------------: | :----------: | :---- |
 | `name` | `array` | name of your variable |
-| `type` | `string` | Variable type, supports `string`, `int`, `float`, `boolean` <br> `dropdown` will also be added in a future update |
+| `type` | `string` | Variable type, supports `string`, `int`, `float`, `boolean`, `dropdown`, `array`, `multi-version` |
 | `label` | `string` | label for the option in settings |
 | `default` | any | default value for the option (can be blank "") |
 ### Example
