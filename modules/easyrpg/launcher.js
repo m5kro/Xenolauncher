@@ -105,7 +105,7 @@ const launch = (gamePath, gameFolder, gameArgs) => {
     args.push(gameFolder);
 
     // Quote the executable for spaces
-    const command = `"${playerExec}" ${args.map(a => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`;
+    const command = `"${playerExec}" ${args.map(a => (a.includes(" ") ? `"${a}"` : a)).join(" ")} --window --project-path "${gameFolder}"`;
     console.log("Launching EasyRPG:", command);
 
     exec(command, (error, stdout, stderr) => {

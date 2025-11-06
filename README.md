@@ -8,18 +8,18 @@ An in progress modular game launcher and compatability layer for macos. The goal
 # Supported Game Engines
 1. MacOS (.app)
 2. RPG MV/MZ (NWjs)
+3. RPG VX Ace, VX, XP (MKXP-Z)
+4. RPG 2003, 2000 (EasyRPG)
 
 # Planned Game Engines (No Particular Order)
 If you have other engines that can work please post it in an issue<br>
-1. RPG 2003, 2000 (EasyRPG)
-2. Godot
-3. Ren'Py (Python)
-4. Flash (Ruffle) 
-5. Java
-6. TyranoBuilder
-7. HTML
-8. Android (Android Studio)
-9. RPG VX Ace, VX, XP (MKXP-Z) <-- In Progress
+1. Godot
+2. Ren'Py (Python)
+3. Flash (Ruffle) <-- In Progress
+4. Java
+5. TyranoBuilder
+6. HTML
+7. Android (Android Studio)
 
 # Known Unsupported Game Engines
 Some of these can still be used with wine<br>
