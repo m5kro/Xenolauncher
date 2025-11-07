@@ -10,7 +10,7 @@
         "width": 600,
         "height": 400
     },
-    "chromium-args": "--enable-gpu-rasterization --enable-gpu-compositing --enable-zero-copy --enable-accelerated-2d-canvas --ignore-gpu-blacklist --disable-software-rasterizer",
+    "chromium-args": "--enable-gpu-rasterization --enable-gpu-compositing --enable-zero-copy --enable-accelerated-2d-canvas --ignore-gpu-blacklist --disable-software-rasterizer --enable-logging=stderr",
     "dependencies": {
         "follow-redirects": "^1.15.9",
         "fs-extra": "^11.3.0",
