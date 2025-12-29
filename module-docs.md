@@ -1,3 +1,6 @@
+> [!NOTE]
+> Modules will be moved to a seperate repository soon. A dedicated Wiki will also be created.
+
 # Manifest
 Every module must come with a manifest.json file to let the launcher know about it.
 ## Required
@@ -13,19 +16,23 @@ Every module must come with a manifest.json file to let the launcher know about 
 | Name | Type | Description |
 | :------------: | :----------: | :---- |
 | `additional-setup` | `boolean` | executes setup.js if it is found |
+| `updates ` | `boolean` | explained in updates section |
 
 
 ## Not Yet Implemented
 | Name | Type | Description |
 | :------------: | :----------: | :---- |
 | `multi-version` | `type` | Does your module need/support different versions of a compatability layer |
-| `self-update` | `boolean` | Check for compatability layer updates on launch and prompt user (seperate from module update) |
 | `custom-settings` | `boolean` | Use a custom settings page (checks for settings.html) |
 | `custom-setup` | `boolean` | Use a custom setup page (checks for setup.html) |
 
 ## dependencies
 Dependencies are only installed during the setup of the module.<br>
 All dependencies will end up in a subfolder called deps in your module folder. Ex: `.../mkxpz/deps/RTP/...`
+
+> [!NOTE]
+> Listing dependencies in the manifest is technically optional if updates are enabled, but it is good practice to include them anyway. An update check will be triggered right after installation and any dependencies not listed in the manifest will be installed then.
+
 | Name | Type | Description |
 | :------------: | :----------: | :---- |
 | `name` | `array` | subfolder name inside deps and what links to use (see example) |

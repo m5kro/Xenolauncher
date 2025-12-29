@@ -209,7 +209,17 @@
         const remoteRoot = `modules/${folder}`;
         const localRoot = path.join(getModulesDir(), folder);
         await downloadDirectory(remoteRoot, localRoot, repo);
-        if (fs.existsSync(localRoot)) await installModuleDependencies(localRoot);
+        if (fs.existsSync(localRoot)) {
+            // 1) Initial dependency install
+            await installModuleDependencies(localRoot);
+
+            // 2) Immediately trigger dependency updates, if supported
+            try {
+                await updateDependencies(folder);
+            } catch (e) {
+                console.warn(`Dependency update check failed for "${folder}" (continuing):`, e);
+            }
+        }
     }
 
     function uninstallModule(folder) {
