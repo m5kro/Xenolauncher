@@ -15,11 +15,12 @@ An in progress modular game launcher and compatability layer for macos. The goal
 If you have other engines that can work please post it in an issue<br>
 1. Godot
 2. Ren'Py (Python)
-3. Flash (Ruffle) <-- In Progress
+3. Flash (Ruffle)
 4. Java
 5. TyranoBuilder
 6. HTML
 7. Android (Android Studio)
+8. Wine (For everything else) <-- In Progress
 
 # Known Unsupported Game Engines
 Some of these can still be used with wine<br>
