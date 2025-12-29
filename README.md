@@ -6,7 +6,7 @@ An in progress modular game launcher and compatability layer for macos. The goal
 > [!TIP]
 > [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup
 
-# Donations
+### Donations
 Ethereum Wallet:<br>
 0x60F040444876EB5996DfA04CB8d8fc8D2aB96CF7
 
@@ -50,7 +50,7 @@ Some of these can still be used with wine<br>
 
 # Special Thanks
 A big thank you to the following people for their support of this project!<br>
-athanadoc05
+athanadoc05 - Donator
 
 # License
 ## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
