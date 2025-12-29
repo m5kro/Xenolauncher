@@ -3,7 +3,8 @@
 # Xenolauncher
 An in progress modular game launcher and compatability layer for macos. The goal is to load games natively if possible, only using wine as a last resort.
 
-[How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup
+> [!TIP]
+> [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup
 
 # Supported Game Engines
 1. MacOS (.app)
