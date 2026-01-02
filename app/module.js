@@ -7,7 +7,7 @@
     const os = require("os");
     const { exec } = require("child_process");
 
-    const DEFAULT_REPO = { owner: "m5kro", repo: "Xenolauncher", branch: "main" };
+    const DEFAULT_REPO = { owner: "m5kro", repo: "Xenolauncher-Modules", branch: "main" };
 
     // Shared arch map for deps
     const archMap = { x64: "x86_64", arm64: "arm64" };
