@@ -151,6 +151,75 @@
         }
     }
 
+    // ===== Archive extraction helper (.zip, .tar.gz/.tgz, .tar) ===================
+    function isZipPath(p) {
+        const s = String(p || "").toLowerCase();
+        return s.endsWith(".zip");
+    }
+    function isTarGzPath(p) {
+        const s = String(p || "").toLowerCase();
+        return s.endsWith(".tar.gz") || s.endsWith(".tgz");
+    }
+    function isTarPath(p) {
+        const s = String(p || "").toLowerCase();
+        return s.endsWith(".tar");
+    }
+
+    // Basic safety: avoid path traversal (../../) and absolute paths inside archives
+    function safeArchiveEntryPath(p) {
+        if (!p) return false;
+        const norm = String(p).replace(/\\/g, "/"); // normalize
+        if (norm.startsWith("/")) return false;
+        if (/^[A-Za-z]:\//.test(norm)) return false; // windows drive absolute
+        const parts = norm.split("/").filter(Boolean);
+        if (parts.includes("..")) return false;
+        return true;
+    }
+
+    async function extractArchive(archivePath, destDir) {
+        fs.mkdirSync(destDir, { recursive: true });
+
+        if (isZipPath(archivePath)) {
+            let unzipper;
+            try {
+                unzipper = require("unzipper");
+            } catch {
+                throw new Error('Archive extraction requested ZIP, but "unzipper" is not installed. Did you follow the build instructions?');
+            }
+
+            await new Promise((resolve, reject) => {
+                fs.createReadStream(archivePath)
+                    .pipe(unzipper.Extract({ path: destDir }))
+                    .on("close", resolve)
+                    .on("error", reject);
+            });
+            return;
+        }
+
+        if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
+            let tar;
+            try {
+                tar = require("tar");
+            } catch {
+                throw new Error('Archive extraction requested TAR, but "tar" is not installed. Did you follow the build instructions?');
+            }
+
+            const gzip = isTarGzPath(archivePath);
+
+            await tar.x({
+                file: archivePath,
+                cwd: destDir,
+                gzip,
+                preserveOwner: false,
+                // prevent path traversal / absolute paths
+                filter: (p /*, entry */) => safeArchiveEntryPath(p),
+            });
+            return;
+        }
+
+        throw new Error(`Unsupported archive type: ${path.basename(archivePath)}`);
+    }
+
     async function installModuleDependencies(modulePath) {
         const mf = path.join(modulePath, "manifest.json");
         if (!fs.existsSync(mf)) return;
@@ -165,14 +234,6 @@
 
         const depsRoot = path.join(modulePath, "deps");
         fs.mkdirSync(depsRoot, { recursive: true });
-
-        // Lazy require unzipper only if needed
-        let unzipper;
-        try {
-            unzipper = require("unzipper");
-        } catch {
-            unzipper = null;
-        }
 
         for (const [depName, builds] of Object.entries(deps)) {
             const depDir = path.join(depsRoot, depName);
@@ -189,13 +250,7 @@
             fs.writeFileSync(archivePath, buf);
 
             if (unzip) {
-                if (!unzipper) throw new Error('Module dependency requested unzip, but "unzipper" is not installed.');
-                await new Promise((resolve, reject) => {
-                    fs.createReadStream(archivePath)
-                        .pipe(unzipper.Extract({ path: depDir }))
-                        .on("close", resolve)
-                        .on("error", reject);
-                });
+                await extractArchive(archivePath, depDir);
                 fs.rmSync(archivePath, { force: true });
             }
         }
@@ -560,14 +615,6 @@
         const depDir = path.join(depsRoot, depName);
         fs.mkdirSync(depDir, { recursive: true });
 
-        // Optional unzipper (same approach as installModuleDependencies)
-        let unzipper = null;
-        try {
-            unzipper = require("unzipper");
-        } catch {
-            unzipper = null;
-        }
-
         // Download
         const res = await fetch(spec.link);
         if (!res.ok) throw new Error(`Failed to download ${depName} from ${spec.link}: ${res.status}`);
@@ -577,13 +624,7 @@
         fs.writeFileSync(archivePath, buf);
 
         if (spec.unzip) {
-            if (!unzipper) throw new Error('Dependency update requested unzip, but "unzipper" is not installed.');
-            await new Promise((resolve, reject) => {
-                fs.createReadStream(archivePath)
-                    .pipe(unzipper.Extract({ path: depDir }))
-                    .on("close", resolve)
-                    .on("error", reject);
-            });
+            await extractArchive(archivePath, depDir);
             fs.rmSync(archivePath, { force: true });
         }
     }
