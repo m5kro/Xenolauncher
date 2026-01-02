@@ -11,6 +11,8 @@ Ethereum Wallet:<br>
 0x60F040444876EB5996DfA04CB8d8fc8D2aB96CF7
 
 # Supported Game Engines
+> [!NOTE]
+> Modules are in a seperate repository: https://github.com/m5kro/Xenolauncher-Modules
 1. MacOS (.app)
 2. RPG MV/MZ (NWjs)
 3. RPG VX Ace, VX, XP (MKXP-Z)
