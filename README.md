@@ -54,20 +54,7 @@ Some of these can still be used with wine<br>
 A big thank you to the following people for their support of this project!<br>
 athanadoc05 - Donator
 
-# License
-## [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**The following terms apply only to the launcher. Modules have seperate Licenses.**<br>
+# Commercial Use
+Please feel free to use Xenolauncher for internal development of commercial software (such as developing a new game).<br>
 <br>
-
- You are free to:<br>
-    **Share** — copy and redistribute the material in any medium or format<br>
-    **Adapt** — remix, transform, and build upon the material<br>
-    The licensor cannot revoke these freedoms as long as you follow the license terms.<br>
-<br>
-
-Under the following terms:<br><br>
-    **Attribution** — You must give [appropriate credit](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-appropriate-credit) , provide a [link to the license](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en), and [indicate if changes were made](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-indicate-changes) . You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.<br><br>
-    **NonCommercial** — You may not use the material for [commercial purposes](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-commercial-purposes) .<br><br>
-    **ShareAlike** — If you remix, transform, or build upon the material, you must distribute your contributions under the [same license](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-same-license) as the original.<br><br>
-    **No additional restrictions** — You may not apply legal terms or [technological measures](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en#ref-technological-measures) that legally restrict others from doing anything the license permits.<br>
-
+However, if you are releasing a derivative of Xenolauncher (using Xenolauncher source code), please keep it free for all to use, and follow the GPL-3.0 licensing by open sourcing the software.
