@@ -252,9 +252,18 @@
                             select.disabled = true;
                         } else {
                             opts.forEach((item) => {
-                                const value = String(item?.value ?? "");
-                                const labelTxt = String(item?.label ?? item?.value ?? "");
-                                if (!value) return; // skip invalid/empty values
+                                if (!item) return;
+
+                                // Allow "" but skip null/undefined
+                                const rawValue = item.value;
+                                if (rawValue === undefined || rawValue === null) return;
+
+                                const value = String(rawValue); // can be ""
+                                const labelTxt =
+                                    item.label !== undefined && item.label !== null
+                                        ? String(item.label)
+                                        : String(rawValue); // fallback
+
                                 const opt = document.createElement("option");
                                 opt.value = value;
                                 opt.textContent = labelTxt;
