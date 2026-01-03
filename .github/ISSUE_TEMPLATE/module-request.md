@@ -7,8 +7,4 @@ assignees: ''
 
 ---
 
-**Describe your module**
-A clear and concise description of what the module should do.
-
-**Additional context**
-Add any other context or screenshots about the feature request here.
+**Please open the request here:** https://github.com/m5kro/Xenolauncher-Modules/issues
