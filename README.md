@@ -17,17 +17,17 @@ Ethereum Wallet:<br>
 2. RPG MV/MZ (NWjs)
 3. RPG VX Ace, VX, XP (MKXP-Z)
 4. RPG 2003, 2000 (EasyRPG)
+5. Flash (Ruffle)
+6. Wine (For everything else) <-- In Beta
 
 # Planned Game Engines (No Particular Order)
 If you have other engines that can work please post it in an issue<br>
 1. Godot
 2. Ren'Py (Python)
-3. Flash (Ruffle)
-4. Java
-5. TyranoBuilder
-6. HTML
-7. Android (Android Studio)
-8. Wine (For everything else) <-- In Progress
+3. Java
+4. TyranoBuilder
+5. HTML
+6. Android (Android Studio)
 
 # Known Unsupported Game Engines
 Some of these can still be used with wine<br>
