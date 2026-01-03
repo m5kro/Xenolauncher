@@ -147,6 +147,10 @@
                     const s = String(p || "").toLowerCase();
                     return s.endsWith(".tar.gz") || s.endsWith(".tgz");
                 }
+                function isTarXzPath(p) {
+                    const s = String(p || "").toLowerCase();
+                    return s.endsWith(".tar.xz") || s.endsWith(".txz");
+                }
                 function isTarPath(p) {
                     const s = String(p || "").toLowerCase();
                     return s.endsWith(".tar");
@@ -177,18 +181,43 @@
                         return;
                     }
 
-                    if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
-                        if (!tar) throw new Error('Requested tar extract, but "tar" is not installed. Did you follow the build instructions?');
+                    if (isTarGzPath(archivePath) || isTarXzPath(archivePath) || isTarPath(archivePath)) {
+                        let tar;
+                        try {
+                            tar = require("tar");
+                        } catch {
+                            throw new Error('Archive extraction requested TAR, but "tar" is not installed. Did you follow the build instructions?');
+                        }
 
-                        const gzip = isTarGzPath(archivePath);
-                        await tar.x({
-                            file: archivePath,
-                            cwd: destDir,
-                            gzip,
-                            preserveOwner: false,
-                            filter: (p) => safeArchiveEntryPath(p),
-                        });
-                        return;
+                        if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
+                            const gzip = isTarGzPath(archivePath);
+
+                            await tar.x({
+                                file: archivePath,
+                                cwd: destDir,
+                                gzip,
+                                preserveOwner: false,
+                                // prevent path traversal / absolute paths
+                                filter: (p /*, entry */) => safeArchiveEntryPath(p),
+                            });
+                            return;
+                        }
+
+                        if (isTarXzPath(archivePath)) {
+                            let lzma;
+                            try {
+                                lzma = require("lzma-native");
+                            } catch {
+                                throw new Error('Archive extraction requested TAR.XZ, but "lzma-native" is not installed. Did you follow the build instructions?');
+                            }
+                            const { pipeline } = require("node:stream/promises");
+                            await pipeline(
+                                fs.createReadStream(archivePath),
+                                lzma.createDecompressor(),
+                                tar.x({ cwd: destDir, preserveOwner: false, filter: (p) => safeArchiveEntryPath(p) })
+                            );
+                            return;
+                        }
                     }
 
                     throw new Error(`Unsupported archive type: ${path.basename(archivePath)}`);
@@ -206,6 +235,9 @@
                         await extractArchive(archivePath, destDir);
                         fs.rmSync(archivePath, { force: true });
                     }
+                    try {
+                        exec(`chown -R "${os.userInfo().uid}" "${depsRoot()}"`, () => {});
+                    } catch (_) {}
                     try {
                         exec(`xattr -cr "${depsRoot()}"`, () => {});
                     } catch (_) {}

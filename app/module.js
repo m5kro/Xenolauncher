@@ -160,6 +160,10 @@
         const s = String(p || "").toLowerCase();
         return s.endsWith(".tar.gz") || s.endsWith(".tgz");
     }
+    function isTarXzPath(p) {
+        const s = String(p || "").toLowerCase();
+        return s.endsWith(".tar.xz") || s.endsWith(".txz");
+    }
     function isTarPath(p) {
         const s = String(p || "").toLowerCase();
         return s.endsWith(".tar");
@@ -196,7 +200,7 @@
             return;
         }
 
-        if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
+        if (isTarGzPath(archivePath) || isTarXzPath(archivePath) || isTarPath(archivePath)) {
             let tar;
             try {
                 tar = require("tar");
@@ -204,19 +208,36 @@
                 throw new Error('Archive extraction requested TAR, but "tar" is not installed. Did you follow the build instructions?');
             }
 
-            const gzip = isTarGzPath(archivePath);
+            if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
+                const gzip = isTarGzPath(archivePath);
 
-            await tar.x({
-                file: archivePath,
-                cwd: destDir,
-                gzip,
-                preserveOwner: false,
-                // prevent path traversal / absolute paths
-                filter: (p /*, entry */) => safeArchiveEntryPath(p),
-            });
-            return;
+                await tar.x({
+                    file: archivePath,
+                    cwd: destDir,
+                    gzip,
+                    preserveOwner: false,
+                    // prevent path traversal / absolute paths
+                    filter: (p /*, entry */) => safeArchiveEntryPath(p),
+                });
+                return;
+            }
+
+            if (isTarXzPath(archivePath)) {
+                let lzma;
+                try {
+                    lzma = require("lzma-native");
+                } catch {
+                    throw new Error('Archive extraction requested TAR.XZ, but "lzma-native" is not installed. Did you follow the build instructions?');
+                }
+                const { pipeline } = require("node:stream/promises");
+                await pipeline(
+                    fs.createReadStream(archivePath),
+                    lzma.createDecompressor(),
+                    tar.x({ cwd: destDir, preserveOwner: false, filter: (p) => safeArchiveEntryPath(p) })
+                );
+                return;
+            }
         }
-
         throw new Error(`Unsupported archive type: ${path.basename(archivePath)}`);
     }
 
@@ -256,6 +277,7 @@
         }
 
         // permissions
+        exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
         exec(`xattr -cr "${depsRoot}"`, () => {});
         exec(`chmod -R 700 "${depsRoot}"`, () => {});
     }
@@ -650,6 +672,9 @@
 
         // The customer is always wrong. - Apple
         try {
+            exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
+        } catch {}
+        try {
             exec(`xattr -cr "${depsRoot}"`, () => {});
         } catch {}
         try {
@@ -721,6 +746,7 @@
         try {
             const { exec } = require("child_process");
             // best-effort; ignore errors on non-macOS
+            exec(`chown -R "${os.userInfo().uid}" "${rootAbs}"`, () => {});
             exec(`xattr -cr "${rootAbs}"`, () => {});
             exec(`chmod -R 700 "${rootAbs}"`, () => {});
         } catch {}
