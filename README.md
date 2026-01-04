@@ -4,7 +4,8 @@
 An in progress modular game launcher and compatability layer for macos. The goal is to load games natively if possible, only using wine as a last resort.
 
 > [!TIP]
-> [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup
+> [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup<br>
+> Basic Instruction Video: https://youtu.be/-QaL9mTCGfY
 
 ### Donations
 <details>
