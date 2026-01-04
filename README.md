@@ -7,11 +7,11 @@ An in progress modular game launcher and compatability layer for macos. The goal
 > [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup
 
 ### Donations
-Ethereum:<br>
+**Ethereum:**<br>
 0x60F040444876EB5996DfA04CB8d8fc8D2aB96CF7<br>
-Bitcoin:<br>
+**Bitcoin:**<br>
 bc1p2ryll0cjz3c50vktmj6wh3tykl9mtlylkp4l5e3403n20r9x9l4qhuyfgp<br>
-Bitcoin Lightning:
+**Bitcoin Lightning:**
 <details>
 <summary>Click to reveal URI</summary>
 Reusable Bolt12 URI<br>
