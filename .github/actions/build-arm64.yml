@@ -1,0 +1,63 @@
+name: build arm64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+
+      - name: Download & extract NWJS (arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail -o nwjs.zip "https://dl.nwjs.io/v0.106.1/nwjs-sdk-v0.106.1-osx-arm64.zip"
+          unzip -q nwjs.zip
+
+      - name: Create app.nw and copy app contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          NW_DIR="nwjs-sdk-v0.106.1-osx-arm64"
+          RES_DIR="${NW_DIR}/nwjs.app/Contents/Resources"
+          APP_NW="${RES_DIR}/app.nw"
+
+          mkdir -p "${APP_NW}"
+          # Copy everything from repo's ./app into app.nw (including dotfiles)
+          rsync -a "app/" "${APP_NW}/"
+
+      - name: npm install inside app.nw
+        shell: bash
+        run: |
+          set -euo pipefail
+          NW_DIR="nwjs-sdk-v0.106.1-osx-arm64"
+          APP_NW="${NW_DIR}/nwjs.app/Contents/Resources/app.nw"
+          cd "${APP_NW}"
+          npm install
+
+      - name: Rename app and zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          NW_DIR="nwjs-sdk-v0.106.1-osx-arm64"
+          cd "${NW_DIR}"
+
+          mv "nwjs.app" "Xenolauncher-arm64.app"
+          # Use ditto to preserve macOS bundle metadata/resource forks
+          ditto -c -k --sequesterRsrc --keepParent "Xenolauncher-arm64.app" "../Xenolauncher-arm64.zip"
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xenolauncher-arm64
+          path: Xenolauncher-arm64.zip
+          if-no-files-found: error
