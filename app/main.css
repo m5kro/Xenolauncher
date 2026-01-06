@@ -94,6 +94,7 @@ label {
     width: 100%;
 }
 .selector input[type="text"],
+.selector input[type="number"],
 .selector select {
     flex: 1 1 auto;
     min-width: 0;
@@ -105,7 +106,8 @@ label {
     flex: 0 0 auto;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="number"] {
     padding: 10px;
     font-size: 16px;
     border: 1px solid #ccc;
@@ -115,7 +117,8 @@ input[type="text"] {
     background-color: var(--input-bg-color, #fff);
     color: var(--input-text-color, #000);
 }
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="number"]:focus {
     border-color: var(--focus-color, #61dafb);
 }
 
@@ -467,6 +470,10 @@ tbody tr:hover {
     align-self: flex-start;
 }
 
+/* --- Number input spinner color scheme --- */
+[data-theme="light"] input[type="number"] { color-scheme: light; }
+[data-theme="dark"]  input[type="number"] { color-scheme: dark; }
+
 /* --- Theme Variables --- */
 [data-theme="light"] {
     --background-color: #f9f9f9;
@@ -495,6 +502,7 @@ tbody tr:hover {
     --input-bg-color: #fff;
     --input-text-color: #000;
     --focus-color: #61dafb;
+    --input-border-color: #ccc;
 
     /* Menus & tables */
     --options-button-color: #333;
@@ -534,6 +542,7 @@ tbody tr:hover {
     --input-bg-color: #1f2225;
     --input-text-color: #eaeaea;
     --focus-color: #bb86fc;
+    --input-border-color: #555;
 
     /* Menus & tables */
     --options-button-color: #eaeaea;
