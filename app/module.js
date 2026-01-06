@@ -188,7 +188,9 @@
             try {
                 unzipper = require("unzipper");
             } catch {
-                throw new Error('Archive extraction requested ZIP, but "unzipper" is not installed. Did you follow the build instructions?');
+                throw new Error(
+                    'Archive extraction requested ZIP, but "unzipper" is not installed. Did you follow the build instructions?'
+                );
             }
 
             await new Promise((resolve, reject) => {
@@ -205,7 +207,9 @@
             try {
                 tar = require("tar");
             } catch {
-                throw new Error('Archive extraction requested TAR, but "tar" is not installed. Did you follow the build instructions?');
+                throw new Error(
+                    'Archive extraction requested TAR, but "tar" is not installed. Did you follow the build instructions?'
+                );
             }
 
             if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
@@ -227,7 +231,9 @@
                 try {
                     lzma = require("lzma-native");
                 } catch {
-                    throw new Error('Archive extraction requested TAR.XZ, but "lzma-native" is not installed. Did you follow the build instructions?');
+                    throw new Error(
+                        'Archive extraction requested TAR.XZ, but "lzma-native" is not installed. Did you follow the build instructions?'
+                    );
                 }
                 const { pipeline } = require("node:stream/promises");
                 await pipeline(
@@ -572,6 +578,10 @@
         return path.join(getModulePath(folder), "updates.js");
     }
 
+    function postUpdateFilePath(folder) {
+        return path.join(getModulePath(folder), "postupdate.js");
+    }
+
     function removeDependencyLocal(folder, depName) {
         const depDir = path.join(getModulePath(folder), "deps", depName);
         if (fs.existsSync(depDir)) {
@@ -592,6 +602,27 @@
             if (mod && typeof mod.checkUpdates === "function") return mod;
         } catch (e) {
             console.warn("Failed loading updates.js for", folder, e);
+        }
+        return null;
+    }
+
+    async function loadPostUpdateProvider(folder) {
+        const file = postUpdateFilePath(folder);
+        if (!fs.existsSync(file)) return null;
+
+        // Clear require cache to ensure fresh reads
+        delete require.cache[file];
+
+        try {
+            const mod = require(file);
+            const fn =
+                (mod && typeof mod.postUpdate === "function" && mod.postUpdate) ||
+                (mod && typeof mod.postupdate === "function" && mod.postupdate) ||
+                null;
+
+            return fn;
+        } catch (e) {
+            console.warn("Failed loading postupdate.js for", folder, e);
         }
         return null;
     }
@@ -659,15 +690,26 @@
         const depsRoot = path.join(modulePath, "deps");
         fs.mkdirSync(depsRoot, { recursive: true });
 
+        const updatedDeps = [];
+
         for (const [depName, builds] of Object.entries(updates)) {
             try {
                 // Remove existing dep first
                 removeDependencyLocal(folder, depName);
+
                 // Install new files
                 await installOneDependency(folder, depName, builds);
+
+                // Mark success (only if installOneDependency didn't throw)
+                updatedDeps.push(depName);
             } catch (e) {
                 console.warn(`Failed to update dependency "${depName}" for ${folder}:`, e);
             }
+        }
+
+        // Only run postupdate.js if at least one dependency update succeeded
+        if (updatedDeps.length > 0) {
+            await runPostUpdate(folder, updatedDeps);
         }
 
         // The customer is always wrong. - Apple
@@ -680,6 +722,21 @@
         try {
             exec(`chmod -R 700 "${depsRoot}"`, () => {});
         } catch {}
+    }
+
+    async function runPostUpdate(folder, updatedDeps) {
+        try {
+            const fn = await loadPostUpdateProvider(folder);
+            if (!fn) return;
+
+            await Promise.resolve(
+                fn({
+                    updatedDeps: Array.isArray(updatedDeps) ? updatedDeps : [],
+                })
+            );
+        } catch (e) {
+            console.warn(`postupdate.js failed for "${folder}":`, e);
+        }
     }
 
     function removeDependency(folder, depName) {
