@@ -37,7 +37,7 @@ jobs:
           # Copy everything from repo's ./app into app.nw (including dotfiles)
           rsync -a "app/" "${APP_NW}/"
 
-          # Replace bundle icon
+          # Replace bundle icon (used by the app itself)
           if [[ -f "app/app.icns" ]]; then
             cp -f "app/app.icns" "${RES_DIR}/app.icns"
           else
@@ -57,16 +57,66 @@ jobs:
           cd "${APP_NW}"
           npm install
 
-      - name: Rename app and zip
+      - name: Rename app
+        shell: bash
+        run: |
+          set -euo pipefail
+          NW_DIR="nwjs-sdk-v0.106.1-osx-x64"
+          cd "${NW_DIR}"
+          mv "nwjs.app" "Xenolauncher-x64.app"
+
+      - name: Apply custom Finder icon (xattr + Icon\\r + Rez)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v Rez >/dev/null 2>&1 || { echo "ERROR: Rez not found (Xcode/CLT missing)."; exit 1; }
+
+          NW_DIR="nwjs-sdk-v0.106.1-osx-x64"
+          cd "${NW_DIR}"
+
+          APP_BUNDLE="Xenolauncher-x64.app"
+
+          # 1) Enable kHasCustomIcon (0x0400) on the app bundle directory
+          xattr -wx com.apple.FinderInfo \
+            '00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00' \
+            "${APP_BUNDLE}"
+
+          # 2) Create Icon\r file at the top level of the bundle
+          pushd "${APP_BUNDLE}" >/dev/null
+          ICON_FILE="Icon"$'\r'
+          rm -f "${ICON_FILE}" || true
+          touch "${ICON_FILE}"
+
+          # Optional/good practice: set Icon\r FinderInfo (type/creator + kIsInvisible 0x40)
+          xattr -wx com.apple.FinderInfo \
+            '69 63 6F 6E 45 4C 49 46 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00' \
+            "${ICON_FILE}"
+
+          # 3) Build the resource fork containing the icns (-16455) into Icon\r
+          cat > resource.r <<'EOF'
+          read 'icns' (-16455) "Contents/Resources/app.icns";
+          EOF
+          Rez resource.r -o "${ICON_FILE}"
+
+          # Re-apply Icon\r FinderInfo after Rez (safe; keeps it hidden/typed)
+          xattr -wx com.apple.FinderInfo \
+            '69 63 6F 6E 45 4C 49 46 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00' \
+            "${ICON_FILE}"
+
+          rm -f resource.r
+          popd >/dev/null
+
+          # Touch bundle to refresh Finder metadata
+          touch "${APP_BUNDLE}"
+
+      - name: Zip app
         shell: bash
         run: |
           set -euo pipefail
           NW_DIR="nwjs-sdk-v0.106.1-osx-x64"
           cd "${NW_DIR}"
 
-          mv "nwjs.app" "Xenolauncher-x64.app"
-
-          # Use ditto to preserve macOS bundle metadata/resource forks
+          # Use ditto to preserve macOS bundle metadata/resource forks (Icon\r + xattrs)
           ditto -c -k --sequesterRsrc --keepParent "Xenolauncher-x64.app" "../Xenolauncher-x64.zip"
 
       - name: Upload zip artifact
