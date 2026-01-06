@@ -57,7 +57,23 @@ jobs:
           cd "${APP_NW}"
           npm install
 
-      - name: Rename app and zip
+      - name: Download fileicon
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Ensure wget exists (macOS runners usually have it, but this makes it robust)
+          if ! command -v wget >/dev/null 2>&1; then
+            brew install wget
+          fi
+
+          wget -q -O fileicon "https://raw.githubusercontent.com/mklement0/fileicon/stable/bin/fileicon"
+          chmod +x fileicon
+
+          # (Optional) sanity check
+          ./fileicon --version || true
+
+      - name: Rename app, apply custom icon (fileicon), and create tar.gz
         shell: bash
         run: |
           set -euo pipefail
@@ -66,12 +82,16 @@ jobs:
 
           mv "nwjs.app" "Xenolauncher-arm64.app"
 
-          # Use ditto to preserve macOS bundle metadata/resource forks
-          ditto -c -k --sequesterRsrc --keepParent "Xenolauncher-arm64.app" "../Xenolauncher-arm64.zip"
+          # Apply a Finder custom icon to the final .app bundle
+          ICON_SRC="${GITHUB_WORKSPACE}/icon.png"
+          "${GITHUB_WORKSPACE}/fileicon" set "Xenolauncher-arm64.app" "${ICON_SRC}"
 
-      - name: Upload zip artifact
+          # Create tar.gz preserving extended attributes (Finder icon, etc.)
+          tar --xattrs -czf "../Xenolauncher-arm64.tar.gz" "Xenolauncher-arm64.app"
+
+      - name: Upload tar.gz artifact
         uses: actions/upload-artifact@v4
         with:
           name: Xenolauncher-arm64
-          path: Xenolauncher-arm64.zip
+          path: Xenolauncher-arm64.tar.gz
           if-no-files-found: error
