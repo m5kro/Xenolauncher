@@ -83,7 +83,7 @@ jobs:
           mv "nwjs.app" "Xenolauncher-x64.app"
 
           # Apply a Finder custom icon to the final .app bundle
-          ICON_SRC="${GITHUB_WORKSPACE}/app/app.icns"
+          ICON_SRC="${GITHUB_WORKSPACE}/icon.png"
           "${GITHUB_WORKSPACE}/fileicon" set "Xenolauncher-x64.app" "${ICON_SRC}"
 
           # Use ditto to preserve macOS bundle metadata/resource forks (important for custom icons)
