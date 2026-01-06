@@ -23,17 +23,30 @@ jobs:
           curl -L --fail -o nwjs.zip "https://dl.nwjs.io/v0.106.1/nwjs-sdk-v0.106.1-osx-arm64.zip"
           unzip -q nwjs.zip
 
-      - name: Create app.nw and copy app contents
+      - name: Create app.nw, copy app contents, and replace app.icns
         shell: bash
         run: |
           set -euo pipefail
           NW_DIR="nwjs-sdk-v0.106.1-osx-arm64"
-          RES_DIR="${NW_DIR}/nwjs.app/Contents/Resources"
+          APP_BUNDLE="${NW_DIR}/nwjs.app"
+          RES_DIR="${APP_BUNDLE}/Contents/Resources"
           APP_NW="${RES_DIR}/app.nw"
 
           mkdir -p "${APP_NW}"
+
           # Copy everything from repo's ./app into app.nw (including dotfiles)
           rsync -a "app/" "${APP_NW}/"
+
+          # Replace bundle icon
+          if [[ -f "app/app.icns" ]]; then
+            cp -f "app/app.icns" "${RES_DIR}/app.icns"
+          else
+            echo "ERROR: app/app.icns not found in repo."
+            exit 1
+          fi
+
+          # Touch app bundle to refresh metadata (icon)
+          touch "${APP_BUNDLE}"
 
       - name: npm install inside app.nw
         shell: bash
@@ -52,6 +65,7 @@ jobs:
           cd "${NW_DIR}"
 
           mv "nwjs.app" "Xenolauncher-arm64.app"
+
           # Use ditto to preserve macOS bundle metadata/resource forks
           ditto -c -k --sequesterRsrc --keepParent "Xenolauncher-arm64.app" "../Xenolauncher-arm64.zip"
 
