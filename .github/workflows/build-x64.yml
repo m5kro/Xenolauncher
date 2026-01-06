@@ -73,7 +73,7 @@ jobs:
           # (Optional) sanity check
           ./fileicon --version || true
 
-      - name: Rename app, apply custom icon (fileicon), and zip
+      - name: Rename app, apply custom icon (fileicon), and create tar.gz
         shell: bash
         run: |
           set -euo pipefail
@@ -86,12 +86,12 @@ jobs:
           ICON_SRC="${GITHUB_WORKSPACE}/icon.png"
           "${GITHUB_WORKSPACE}/fileicon" set "Xenolauncher-x64.app" "${ICON_SRC}"
 
-          # Use ditto to preserve macOS bundle metadata/resource forks (important for custom icons)
-          ditto -c -k --sequesterRsrc --keepParent "Xenolauncher-x64.app" "../Xenolauncher-x64.zip"
+          # Create tar.gz preserving extended attributes (Finder icon, etc.)
+          tar --xattrs -czf "../Xenolauncher-x64.tar.gz" "Xenolauncher-x64.app"
 
-      - name: Upload zip artifact
+      - name: Upload tar.gz artifact
         uses: actions/upload-artifact@v4
         with:
           name: Xenolauncher-x64
-          path: Xenolauncher-x64.zip
+          path: Xenolauncher-x64.tar.gz
           if-no-files-found: error
