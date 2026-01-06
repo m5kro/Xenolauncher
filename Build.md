@@ -1,4 +1,7 @@
 # How to Build
+> [!TIP]
+> Use the github actions workflow for optimal results!
+
 1. Install nodejs and npm through your preffered method (nodejs website or brew is recommended)
 2. Clone the repo `git clone https://github.com/m5kro/Xenolauncher`
 3. Enter the app folder `cd Xenolauncher/app`
