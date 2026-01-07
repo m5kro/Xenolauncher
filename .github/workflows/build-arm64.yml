@@ -82,6 +82,12 @@ jobs:
 
           mv "nwjs.app" "Xenolauncher-arm64.app"
 
+          # Clear old xattrs
+          xattr -cr "Xenolauncher-arm64.app"
+
+          # Ad hoc sign cuz apple
+          codesign --force --deep -s - "Xenolauncher-arm64.app"
+
           # Apply a Finder custom icon to the final .app bundle
           ICON_SRC="${GITHUB_WORKSPACE}/icon.png"
           "${GITHUB_WORKSPACE}/fileicon" set "Xenolauncher-arm64.app" "${ICON_SRC}"
