@@ -61,6 +61,7 @@ Some of these can still be used with wine<br>
 6. Better error correction/tracking
 7. Different/3rd party module repos
 8. Better module documentation/wiki
+9. Open status window for every install or update process 
 
 # Special Thanks
 A big thank you to the following people for their support of this project!<br>
