@@ -375,7 +375,7 @@
                                 `Would you like to open the Module Manager to install them now?`
                         );
                         if (wants) {
-                            openSubwindow("module-manager.html?showInstalled=1");
+                            openSubwindow("module-manager.html?showInstalled=1", null, null, 800, 600);
                         }
                     }
                 } catch (e) {
@@ -402,7 +402,7 @@
                     .addEventListener("click", () => openSubwindow("global-settings.html"));
                 document.getElementById("moduleManagerButton").addEventListener("click", () => {
                     const showInstalled = false;
-                    openSubwindow(`module-manager.html?showInstalled=${showInstalled ? "1" : "0"}`);
+                    openSubwindow(`module-manager.html?showInstalled=${showInstalled ? "1" : "0"}`, null, null, 800, 600);
                 });
 
                 const searchInput = document.getElementById("searchInput");
