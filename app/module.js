@@ -175,33 +175,6 @@
     }
 
     // ===== Download / install modules ========================================
-    async function downloadDirectory(remoteDir, localDir, repo = DEFAULT_REPO, opts = {}) {
-        fs.mkdirSync(localDir, { recursive: true });
-
-        const signal = opts && opts.signal;
-        throwIfAborted(signal);
-
-        const res = await fetch(`${getApiBase(repo)}/${remoteDir}?ref=${repo.branch}`, signal ? { signal } : undefined);
-        if (!res.ok) throw new Error(`Failed to list ${remoteDir}: ${res.status}`);
-        const items = await res.json();
-
-        for (const item of items) {
-            throwIfAborted(signal);
-
-            const localPath = path.join(localDir, item.name);
-            const remotePath = `${remoteDir}/${item.name}`;
-
-            if (item.type === "dir") {
-                await downloadDirectory(remotePath, localPath, repo, opts);
-            } else if (item.type === "file") {
-                const fileRes = await fetch(`${getRawBase(repo)}/${remotePath}`, signal ? { signal } : undefined);
-                if (!fileRes.ok) continue;
-                const data = await fileRes.arrayBuffer();
-                fs.writeFileSync(localPath, Buffer.from(data));
-            }
-        }
-    }
-
     function safeCall(fn, arg) {
         if (typeof fn === "function") {
             try {
@@ -965,69 +938,6 @@
 
         throw new Error(`Unsupported archive type: ${path.basename(archivePath)}`);
     }
-    async function installModuleDependencies(modulePath, opts = {}) {
-        const signal = opts && opts.signal;
-        throwIfAborted(signal);
-
-        const mf = path.join(modulePath, "manifest.json");
-        if (!fs.existsSync(mf)) return;
-        let manifest;
-        try {
-            manifest = JSON.parse(fs.readFileSync(mf, "utf8"));
-        } catch {
-            return;
-        }
-        const deps = manifest.dependencies || {};
-        if (Object.keys(deps).length === 0) return;
-
-        const depsRoot = path.join(modulePath, "deps");
-        fs.mkdirSync(depsRoot, { recursive: true });
-
-        for (const [depName, builds] of Object.entries(deps)) {
-            const depDir = path.join(depsRoot, depName);
-            fs.mkdirSync(depDir, { recursive: true });
-            const key = builds.universal ? "universal" : sysArch;
-            if (!builds[key]) throw new Error(`No build for "${depName}" matching arch "${sysArch}"`);
-            const { link, unzip } = builds[key];
-
-            const res = await fetch(link);
-            if (!res.ok) throw new Error(`Failed to download ${depName} from ${link}: ${res.status}`);
-            const buf = Buffer.from(await res.arrayBuffer());
-            const fileName = path.basename(new URL(link).pathname);
-            const archivePath = path.join(depDir, fileName);
-            fs.writeFileSync(archivePath, buf);
-
-            if (unzip) {
-                throwIfAborted(signal);
-                throwIfAborted(signal);
-                await extractArchive(archivePath, depDir, opts);
-                fs.rmSync(archivePath, { force: true });
-            }
-        }
-
-        // permissions
-        exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
-        exec(`xattr -cr "${depsRoot}"`, () => {});
-        exec(`chmod -R 700 "${depsRoot}"`, () => {});
-    }
-
-    async function installModule(folder, repo = DEFAULT_REPO) {
-        const remoteRoot = `modules/${folder}`;
-        const localRoot = path.join(getModulesDir(), folder);
-        await downloadDirectory(remoteRoot, localRoot, repo);
-        if (fs.existsSync(localRoot)) {
-            // 1) Initial dependency install
-            await installModuleDependencies(localRoot);
-
-            // 2) Immediately trigger dependency updates, if supported
-            try {
-                await updateDependencies(folder);
-            } catch (e) {
-                console.warn(`Dependency update check failed for "${folder}" (continuing):`, e);
-            }
-        }
-    }
-
     function uninstallModule(folder) {
         const localRoot = path.join(getModulesDir(), folder);
         if (fs.existsSync(localRoot)) fs.rmSync(localRoot, { recursive: true, force: true });
@@ -1399,49 +1309,6 @@
             fs.rmSync(archivePath, { force: true });
         }
     }
-
-    async function updateDependencies(folder, opts = {}) {
-        const updates = await getDependencyUpdates(folder);
-        if (!updates || Object.keys(updates).length === 0) return;
-
-        const modulePath = getModulePath(folder);
-        const depsRoot = path.join(modulePath, "deps");
-        fs.mkdirSync(depsRoot, { recursive: true });
-
-        const updatedDeps = [];
-
-        for (const [depName, builds] of Object.entries(updates)) {
-            try {
-                // Remove existing dep first
-                removeDependencyLocal(folder, depName);
-
-                // Install new files
-                await installOneDependency(folder, depName, builds);
-
-                // Mark success (only if installOneDependency didn't throw)
-                updatedDeps.push(depName);
-            } catch (e) {
-                console.warn(`Failed to update dependency "${depName}" for ${folder}:`, e);
-            }
-        }
-
-        // Only run postupdate.js if at least one dependency update succeeded
-        if (updatedDeps.length > 0) {
-            await runPostUpdate(folder, updatedDeps);
-        }
-
-        // The customer is always wrong. - Apple
-        try {
-            exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
-        } catch {}
-        try {
-            exec(`xattr -cr "${depsRoot}"`, () => {});
-        } catch {}
-        try {
-            exec(`chmod -R 700 "${depsRoot}"`, () => {});
-        } catch {}
-    }
-
     async function runPostUpdate(folder, updatedDeps) {
         try {
             const fn = await loadPostUpdateProvider(folder);
@@ -1531,94 +1398,6 @@
      * Full update that preserves every multi-version directory in deps/<argKey>/...
      * If the updated manifest removes a multi-version variable entirely, its deps/<argKey> folder is deleted.
      */
-
-    async function updateModulePreservingMultiversions(folder) {
-        const appSupport = GlobalSettings.getAppSupportDir();
-        const modRoot = path.join(appSupport, "modules", folder);
-        const depsRoot = path.join(modRoot, "deps");
-        const manifestPath = path.join(modRoot, "manifest.json");
-
-        let stashBase = null;
-
-        try {
-            const oldManifest = safeReadJson(manifestPath) || {};
-            const oldMultiKeys = extractMultiVersionKeys(oldManifest);
-            const toPreserve = [];
-            for (const key of oldMultiKeys) {
-                const p = path.join(depsRoot, key);
-                if (fs.existsSync(p)) toPreserve.push({ key, abs: p });
-            }
-
-            stashBase = path.join(appSupport, ".xeno-preserve", `${folder}-${Date.now()}`);
-            const stashRoot = path.join(stashBase, "deps");
-            ensureDir(stashRoot);
-
-            for (const item of toPreserve) {
-                const dest = path.join(stashRoot, item.key);
-                moveDirOrCopy(item.abs, dest);
-            }
-
-            try {
-                Module.uninstallModule(folder);
-            } catch (e) {
-                console.warn("uninstallModule failed (continuing):", e);
-            }
-            await Module.installModule(folder);
-
-            const newManifest = safeReadJson(manifestPath) || {};
-            const newMultiKeys = new Set(extractMultiVersionKeys(newManifest));
-
-            ensureDir(depsRoot);
-            for (const { key } of toPreserve) {
-                const stash = path.join(stashRoot, key);
-                if (!fs.existsSync(stash)) continue;
-
-                if (newMultiKeys.has(key)) {
-                    const dest = path.join(depsRoot, key);
-                    ensureDir(dest);
-
-                    for (const name of fs.readdirSync(stash)) {
-                        const from = path.join(stash, name);
-                        const to = path.join(dest, name);
-                        if (!fs.existsSync(to)) {
-                            moveDirOrCopy(from, to);
-                        }
-                    }
-                }
-
-                fs.rmSync(stash, { recursive: true, force: true });
-            }
-
-            for (const { key } of toPreserve) {
-                if (!newMultiKeys.has(key)) {
-                    const orphan = path.join(depsRoot, key);
-                    try {
-                        fs.rmSync(orphan, { recursive: true, force: true });
-                    } catch {}
-                }
-            }
-
-            await fixQuarantineAndPerms(depsRoot);
-        } catch (e) {
-            // Uninstall module if update fails.
-            try {
-                if (folder) Module.uninstallModule(folder);
-            } catch {}
-            throw e;
-        } finally {
-            // Clean only THIS job’s stash.
-            try {
-                if (stashBase) fs.rmSync(stashBase, { recursive: true, force: true });
-            } catch {}
-            try {
-                const preserveDir = path.join(appSupport, ".xeno-preserve");
-                if (fs.existsSync(preserveDir) && fs.readdirSync(preserveDir).length === 0) {
-                    fs.rmSync(preserveDir, { recursive: true, force: true });
-                }
-            } catch {}
-        }
-    }
-
     // Fix game args after module updates
     function mergeGameArgsWithSchema(savedArgs, schema) {
         const has = Object.prototype.hasOwnProperty;
@@ -1695,11 +1474,8 @@
         hasUpdate,
 
         // install / uninstall
-        downloadDirectory,
         downloadDirectoryWithProgress,
         installModuleWithProgress,
-        installModuleDependencies,
-        installModule,
         uninstallModule,
 
         // autodetect
@@ -1718,14 +1494,12 @@
         getDependencyUpdates,
         hasDependencyUpdates,
         checkDependencyUpdatesForFolders,
-        updateDependencies,
         updateDependenciesWithProgress,
         updateDependenciesTaskWithProgress,
         removeDependency,
         installDependency,
 
         // multi-version preserving update
-        updateModulePreservingMultiversions,
         updateModulePreservingMultiversionsWithProgress,
 
         // game args updater

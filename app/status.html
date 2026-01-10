@@ -353,6 +353,10 @@
                             await Module.installModuleWithProgress(folder, Module.DEFAULT_REPO, progress, {
                                 signal: abortController.signal,
                             });
+                            // After install, immediately run dependency update task
+                            await Module.updateDependenciesTaskWithProgress(folder, progress, {
+                                signal: abortController.signal,
+                            });
                         } else if (action === "update") {
                             await Module.updateModulePreservingMultiversionsWithProgress(folder, progress, {
                                 signal: abortController.signal,
