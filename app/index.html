@@ -54,7 +54,7 @@
         <script>
             let allGames = {};
             let currentQuery = "";
-            const currentVersion = "1.1.0";
+            const currentVersion = nw.App.manifest.version;
 
             // Compare "x.y.z" version strings. Returns true if remote > local.
             function hasUpdate(local, remote) {
