@@ -5,7 +5,8 @@ An in progress modular game launcher and compatability layer for macos. The goal
 
 > [!TIP]
 > [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup<br>
-> Basic Instruction Video: https://youtu.be/-QaL9mTCGfY
+> Basic Instruction Video: https://youtu.be/-QaL9mTCGfY<br>
+> **If you get a popup asking for "Safe Storage" press deny, this is unused and will not affect Xenolauncher**
 
 ### Donations
 <details>
