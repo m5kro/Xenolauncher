@@ -64,6 +64,106 @@
         return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
     }
 
+    // ===== Cache helpers =======================================================
+    const CACHE_SCHEMA = 1;
+    const REMOTE_MANIFESTS_CACHE_FILE = "remote-manifests-cache.json";
+    const DEP_UPDATE_CACHE_FILE = "dependency-updates-cache.json";
+
+    function getCacheDir() {
+        // Shared across NW.js windows
+        return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "cache");
+    }
+
+    function repoKey(r = DEFAULT_REPO) {
+        return `${r.owner}/${r.repo}@${r.branch}`;
+    }
+
+    function readCacheJson(filePath) {
+        return safeReadJson(filePath);
+    }
+
+    function writeJsonAtomic(filePath, obj) {
+        try {
+            ensureDir(path.dirname(filePath));
+            const tmp = `${filePath}.tmp`;
+            fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), "utf8");
+            fs.renameSync(tmp, filePath);
+        } catch (e) {
+            console.warn("Failed to write cache:", filePath, e);
+        }
+    }
+
+    // Remote manifests cache
+    let remoteManifestsMem = null;
+    let remoteManifestsRepoKey = null;
+    let remoteManifestsInflight = null;
+
+    function loadRemoteManifestsCache(repo = DEFAULT_REPO) {
+        const p = path.join(getCacheDir(), REMOTE_MANIFESTS_CACHE_FILE);
+        const cached = readCacheJson(p);
+        if (!cached || cached.schema !== CACHE_SCHEMA) return null;
+        if (cached.repoKey !== repoKey(repo)) return null;
+        if (!Array.isArray(cached.manifests)) return null;
+        return cached.manifests;
+    }
+
+    function saveRemoteManifestsCache(manifests, repo = DEFAULT_REPO) {
+        const p = path.join(getCacheDir(), REMOTE_MANIFESTS_CACHE_FILE);
+        writeJsonAtomic(p, {
+            schema: CACHE_SCHEMA,
+            repoKey: repoKey(repo),
+            fetchedAt: new Date().toISOString(),
+            manifests,
+        });
+    }
+
+    // Dependency update cache
+    letdepUpdatesMem = null; // { schema, fetchedAt, updatesByFolder }
+    let depUpdatesInflight = null;
+
+    function loadDepUpdatesCache() {
+        const p = path.join(getCacheDir(), DEP_UPDATE_CACHE_FILE);
+        const cached = readCacheJson(p);
+        if (!cached || cached.schema !== CACHE_SCHEMA) return null;
+        if (!cached.updatesByFolder || typeof cached.updatesByFolder !== "object") return null;
+        return cached;
+    }
+
+    function saveDepUpdatesCache(updatesByFolder) {
+        const p = path.join(getCacheDir(), DEP_UPDATE_CACHE_FILE);
+        writeJsonAtomic(p, {
+            schema: CACHE_SCHEMA,
+            fetchedAt: new Date().toISOString(),
+            updatesByFolder,
+        });
+    }
+
+    // Clear a folder's "dependency updates available" flag in the shared cache after updates are applied
+    function clearDepUpdateFlag(folder) {
+        if (!folder) return;
+        try {
+            // Update disk cache (shared across windows)
+            const disk = loadDepUpdatesCache() || {
+                schema: CACHE_SCHEMA,
+                fetchedAt: new Date().toISOString(),
+                updatesByFolder: {},
+            };
+            if (!disk.updatesByFolder || typeof disk.updatesByFolder !== "object") disk.updatesByFolder = {};
+            disk.updatesByFolder[folder] = false;
+            disk.fetchedAt = new Date().toISOString();
+            saveDepUpdatesCache(disk.updatesByFolder);
+
+            // Update this window's memory cache too
+           depUpdatesMem = disk;
+        } catch (e) {
+            // best-effort
+        }
+    }
+
+    function invalidateDepUpdatesCache() {
+       depUpdatesMem = null;
+    }
+
     function getInstalledModuleFolders() {
         const modsDir = getModulesDir();
         const set = new Set();
@@ -126,7 +226,7 @@
             };
         }
     }
-    async function fetchRemoteManifestsList(repo = DEFAULT_REPO, opts = {}) {
+    async function fetchRemoteManifestsListFromGitHub(repo = DEFAULT_REPO, opts = {}) {
         const url = `${getApiBase(repo)}/modules?ref=${repo.branch}`;
         const signal = opts && opts.signal;
         throwIfAborted(signal);
@@ -136,6 +236,54 @@
         const items = await res.json();
         const dirs = items.filter((i) => i.type === "dir");
         return Promise.all(dirs.map((d) => fetchRemoteManifest(d.name, repo, opts)));
+    }
+
+    async function fetchRemoteManifestsList(repo = DEFAULT_REPO, opts = {}) {
+        const forceRefresh = !!(opts && opts.forceRefresh);
+        const key = repoKey(repo);
+
+        // 1) Memory cache
+        if (!forceRefresh && remoteManifestsMem && remoteManifestsRepoKey === key) {
+            return remoteManifestsMem;
+        }
+
+        // 2) Disk cache
+        if (!forceRefresh) {
+            const disk = loadRemoteManifestsCache(repo);
+            if (disk) {
+                remoteManifestsMem = disk;
+                remoteManifestsRepoKey = key;
+                return disk;
+            }
+        }
+
+        // 3) De-dupe concurrent refreshes in this window
+        if (remoteManifestsInflight && remoteManifestsRepoKey === key) {
+            return remoteManifestsInflight;
+        }
+
+        remoteManifestsRepoKey = key;
+        remoteManifestsInflight = (async () => {
+            try {
+                const fresh = await fetchRemoteManifestsListFromGitHub(repo, opts);
+                remoteManifestsMem = fresh;
+                saveRemoteManifestsCache(fresh, repo);
+                return fresh;
+            } catch (e) {
+                // If GitHub rate-limits you, fall back to the last cached snapshot.
+                const fallback = loadRemoteManifestsCache(repo);
+                if (fallback) {
+                    console.warn("fetchRemoteManifestsList: GitHub fetch failed; using cached manifests:", e);
+                    remoteManifestsMem = fallback;
+                    return fallback;
+                }
+                throw e;
+            } finally {
+                remoteManifestsInflight = null;
+            }
+        })();
+
+        return remoteManifestsInflight;
     }
 
     function normalizeVer(v) {
@@ -559,6 +707,7 @@
             exec(`chmod -R 700 "${depsRoot}"`, () => {});
         } catch {}
 
+        clearDepUpdateFlag(folder);
         return { updated: updatedDeps };
     }
 
@@ -583,6 +732,7 @@
         await updateDependenciesWithProgress(folder, progress, stepper, updates, opts);
 
         stepper.next("Done.");
+        clearDepUpdateFlag(folder);
         return true;
     }
     async function installModuleWithProgress(folder, repo = DEFAULT_REPO, progress, opts = {}) {
@@ -1277,16 +1427,69 @@
         return Object.keys(map).length > 0;
     }
 
-    async function checkDependencyUpdatesForFolders(folders) {
-        const result = new Set();
-        for (const f of folders) {
+    async function checkDependencyUpdatesForFolders(folders, opts = {}) {
+        const forceRefresh = !!(opts && opts.forceRefresh);
+
+        // Cache read
+        if (!forceRefresh) {
             try {
-                if (await hasDependencyUpdates(f)) result.add(f);
-            } catch (e) {
-                console.warn("checkDependencyUpdatesForFolders failed for", f, e);
+                const disk = loadDepUpdatesCache();
+                if (disk && (!depUpdatesMem ||depUpdatesMem.fetchedAt !== disk.fetchedAt)) {
+                   depUpdatesMem = disk;
+                }
+            } catch {}
+
+            if (depUpdatesMem &&depUpdatesMem.updatesByFolder) {
+                const set = new Set();
+                for (const f of folders) if (depUpdatesMem.updatesByFolder[f]) set.add(f);
+                return set;
             }
         }
-        return result;
+
+        // De-dupe concurrent refreshes in this window
+        if (depUpdatesInflight) {
+            const cache = await depUpdatesInflight;
+            const set = new Set();
+            for (const f of folders) if (cache.updatesByFolder && cache.updatesByFolder[f]) set.add(f);
+            return set;
+        }
+
+        depUpdatesInflight = (async () => {
+            // Merge into any existing cache so we don't "forget" folders we aren't checking now.
+            const base =
+                (depUpdatesMem &&depUpdatesMem.updatesByFolder) ||
+                (loadDepUpdatesCache() || {}).updatesByFolder ||
+                {};
+            const updatesByFolder = { ...base };
+
+            for (const f of folders) {
+                try {
+                    updatesByFolder[f] = !!(await hasDependencyUpdates(f));
+                } catch (e) {
+                    console.warn("checkDependencyUpdatesForFolders failed for", f, e);
+                    // keep prior cached value if we have it, otherwise assume false
+                    updatesByFolder[f] = !!updatesByFolder[f];
+                }
+            }
+
+            const cacheObj = {
+                schema: CACHE_SCHEMA,
+                fetchedAt: new Date().toISOString(),
+                updatesByFolder,
+            };
+           depUpdatesMem = cacheObj;
+            saveDepUpdatesCache(updatesByFolder);
+            return cacheObj;
+        })();
+
+        try {
+            const cache = await depUpdatesInflight;
+            const set = new Set();
+            for (const f of folders) if (cache.updatesByFolder && cache.updatesByFolder[f]) set.add(f);
+            return set;
+        } finally {
+            depUpdatesInflight = null;
+        }
     }
     async function installOneDependency(depName, builds, depsRoot, opts = {}) {
         const signal = opts && opts.signal;
@@ -1494,6 +1697,8 @@
         getDependencyUpdates,
         hasDependencyUpdates,
         checkDependencyUpdatesForFolders,
+        clearDepUpdateFlag,
+        invalidateDepUpdatesCache,
         updateDependenciesWithProgress,
         updateDependenciesTaskWithProgress,
         removeDependency,

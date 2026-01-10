@@ -69,10 +69,23 @@
                 const searchInput = document.getElementById("moduleSearch");
                 const installedOnlyCb = document.getElementById("installedOnly");
 
-                document.getElementById("refresh-btn").addEventListener("click", fetchModules);
+                document.getElementById("refresh-btn").addEventListener("click", async () => {
+                    const btn = document.getElementById("refresh-btn");
+                    btn.disabled = true;
+                    const old = btn.textContent;
+                    btn.textContent = "Refreshing…";
+                    try {
+                        await fetchModules({ forceRefresh: true });
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = old;
+                    }
+                });
+
                 // Called by status.html when an install/update finishes
                 window.onModuleTaskFinished = async function () {
                     try {
+                        Module.invalidateDepUpdatesCache?.();
                         await fetchModules();
                     } catch (_) {}
                 };
@@ -123,17 +136,29 @@
                     renderTable(sorted, installedSet);
                 }
 
-                async function fetchModules() {
+                async function fetchModules(opts = {}) {
                     const container = document.getElementById("modules-container");
                     container.innerHTML = "<p>Loading modules…</p>";
+
+                    const forceRefresh = !!opts.forceRefresh;
+                    if (forceRefresh) {
+                        console.log("Forcing refresh of remote module list and dependency update scan.");
+                    } else {
+                        console.log("Fetching module list from cache if available.");
+                    }
+
                     try {
-                        const manifests = await Module.fetchRemoteManifestsList();
+                        // Only hit GitHub when forceRefresh=true
+                        const manifests = await Module.fetchRemoteManifestsList(Module.DEFAULT_REPO, { forceRefresh });
+
                         installedSet = Module.getInstalledModuleFolders();
                         moduleManifests = Module.readLocalManifests();
 
-                        // Pre-scan installed modules for dependency updates
+                        // Only hit network when forceRefresh=true
                         try {
-                            depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]);
+                            depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet], {
+                                forceRefresh,
+                            });
                         } catch (scanErr) {
                             console.warn("Dependency update scan failed:", scanErr);
                             depUpdatesSet = new Set();
