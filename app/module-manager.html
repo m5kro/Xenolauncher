@@ -170,9 +170,9 @@
                         // Run installs in a dedicated status window so user clicks don’t interrupt the process
                         const url = `status.html?action=install&folder=${encodeURIComponent(folder)}`;
                         if (typeof openSubwindow === "function") {
-                            openSubwindow(url);
+                            openSubwindow(url, null, null, 600, 450);
                         } else {
-                            nw.Window.open(url, { title: "Install Status", resizable: true, width: 520, height: 360 });
+                            nw.Window.open(url, { title: "Install Status", resizable: true, width: 600, height: 450 });
                         }
                     });
                     return btn;
@@ -191,9 +191,9 @@
                             : `status.html?action=update-deps&folder=${encodeURIComponent(folder)}`;
 
                         if (typeof openSubwindow === "function") {
-                            openSubwindow(url);
+                            openSubwindow(url, null, null, 600, 450);
                         } else {
-                            nw.Window.open(url, { title: "Update Status", resizable: true, width: 520, height: 500 });
+                            nw.Window.open(url, { title: "Update Status", resizable: true, width: 600, height: 450 });
                         }
                     });
                     return btn;

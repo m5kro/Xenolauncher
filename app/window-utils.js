@@ -1,10 +1,10 @@
 // window-utils.js
 (function () {
-    function openSubwindow(url, gameId = null, onClosed = null) {
+    function openSubwindow(url, gameId = null, onClosed = null, width = null, height = null) {
         document.body.style.pointerEvents = "none";
         const fullUrl = gameId ? `${url}?gameId=${gameId}` : url;
 
-        nw.Window.open(fullUrl, { title: "Subwindow", resizable: true }, (newWin) => {
+        nw.Window.open(fullUrl, { title: "Subwindow", resizable: true, width: width, height: height }, (newWin) => {
             newWin.on("loaded", () => {
                 // Allow child to instruct the opener to update theme
                 newWin.window.setMainWindow = (settings) => {
