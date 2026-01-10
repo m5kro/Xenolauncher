@@ -118,7 +118,7 @@
     }
 
     // Dependency update cache
-    letdepUpdatesMem = null; // { schema, fetchedAt, updatesByFolder }
+    let depUpdatesMem = null; // { schema, fetchedAt, updatesByFolder }
     let depUpdatesInflight = null;
 
     function loadDepUpdatesCache() {
@@ -1457,7 +1457,7 @@
         depUpdatesInflight = (async () => {
             // Merge into any existing cache so we don't "forget" folders we aren't checking now.
             const base =
-                (depUpdatesMem &&depUpdatesMem.updatesByFolder) ||
+                (depUpdatesMem && depUpdatesMem.updatesByFolder) ||
                 (loadDepUpdatesCache() || {}).updatesByFolder ||
                 {};
             const updatesByFolder = { ...base };
