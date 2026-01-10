@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <script src="global-settings.js"></script>
+        <script>
+            // Decide theme before CSS is parsed to prevent flash
+            (function () {
+                const s = GlobalSettings.loadGlobalSettings();
+                GlobalSettings.applyTheme(s.darkTheme);
+
+                const meta = document.createElement("meta");
+                meta.name = "color-scheme";
+                meta.content = s.darkTheme ? "dark light" : "light dark";
+                document.head.appendChild(meta);
+            })();
+        </script>
+
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Module Status</title>
+        <link rel="stylesheet" href="main.css" />
+    </head>
+
+    <body>
+        <div class="status-shell">
+            <div class="status-header">
+                <div>
+                    <h1 class="status-title" id="title">Module Status</h1>
+                    <p class="status-subtitle" id="subtitle">Preparing…</p>
+                </div>
+                <button class="secondary-button" id="closeBtn">Close</button>
+            </div>
+
+            <div class="status-card">
+                <div class="status-row">
+                    <div>
+                        <div class="status-label">Install step</div>
+                        <div class="status-step" id="stepLabel">Starting…</div>
+                    </div>
+                    <div style="text-align: right">
+                        <div class="status-label">Current download</div>
+                        <div class="status-value" id="downloadLabel">—</div>
+                    </div>
+                </div>
+
+                <div class="status-progress" style="margin-top: 10px">
+                    <progress id="progress" value="0" max="1"></progress>
+                </div>
+
+                <div class="status-metrics">
+                    <div class="status-row">
+                        <div class="status-label">Total size</div>
+                        <div class="status-value" id="totalSize">—</div>
+                    </div>
+                    <div class="status-row">
+                        <div class="status-label">Downloaded</div>
+                        <div class="status-value" id="downloaded">—</div>
+                    </div>
+                    <div class="status-row">
+                        <div class="status-label">Speed</div>
+                        <div class="status-value" id="speed">—</div>
+                    </div>
+                    <div class="status-row">
+                        <div class="status-label">Status</div>
+                        <div class="status-value" id="overall">Running…</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-card">
+                <div class="status-label" style="margin-bottom: 8px">Log</div>
+                <div class="status-log" id="log" aria-label="status log"></div>
+            </div>
+
+            <div class="status-footer">
+                <div id="stepCounter">Step —</div>
+                <div id="timeElapsed">—</div>
+            </div>
+        </div>
+
+        <!-- Shared scripts -->
+        <script src="module.js"></script>
+
+        <script>
+            (function () {
+                const params = new URLSearchParams(location.search);
+                const action = params.get("action") || "install";
+                const folder = params.get("folder") || "";
+                const full = params.get("full") === "1";
+
+                const el = (id) => document.getElementById(id);
+
+                const titleEl = el("title");
+                const subtitleEl = el("subtitle");
+                const stepLabelEl = el("stepLabel");
+                const downloadLabelEl = el("downloadLabel");
+                const progressEl = el("progress");
+                const totalSizeEl = el("totalSize");
+                const downloadedEl = el("downloaded");
+                const speedEl = el("speed");
+                const overallEl = el("overall");
+                const logEl = el("log");
+                const stepCounterEl = el("stepCounter");
+                const timeElapsedEl = el("timeElapsed");
+
+                const startedAt = Date.now();
+
+                let stepCurrent = null;
+                let stepTotal = null;
+
+                let lastLineTs = 0;
+
+                // download UI throttling
+                let pendingDl = null; // { label, downloadedBytes, totalBytes }
+                let speedEma = 0;
+                let lastSpeedSampleTs = 0;
+                let lastProgressLogTs = 0;
+                let renderScheduled = false;
+
+                let isRunning = true;
+                let cancelRequested = false;
+                const abortController = new AbortController();
+
+                function isAbortError(err) {
+                    if (!err) return false;
+                    if (err.name === "AbortError") return true;
+                    const msg = String(err.message || err);
+                    return /aborted|aborterror|canceled|cancelled/i.test(msg);
+                }
+
+                function setCloseButtonState() {
+                    const btn = el("closeBtn");
+                    if (!btn) return;
+                    if (isRunning) {
+                        btn.textContent = cancelRequested ? "Canceling…" : "Cancel";
+                    } else {
+                        btn.textContent = "Close";
+                    }
+                }
+
+                function pad2(n) {
+                    return String(n).padStart(2, "0");
+                }
+                function formatDuration(ms) {
+                    const s = Math.floor(ms / 1000);
+                    const m = Math.floor(s / 60);
+                    const r = s % 60;
+                    return `${m}:${pad2(r)}`;
+                }
+
+                function formatBytes(bytes) {
+                    if (bytes === null || bytes === undefined) return "—";
+                    if (bytes === 0) return "0 B";
+                    const k = 1024;
+                    const sizes = ["B", "KB", "MB", "GB", "TB"];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    const v = bytes / Math.pow(k, i);
+                    return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${sizes[i]}`;
+                }
+
+                function formatSpeed(bps) {
+                    if (!bps || bps <= 0) return "—";
+                    return `${formatBytes(bps)}/s`;
+                }
+
+                function log(line) {
+                    const now = Date.now();
+                    // avoid flooding log with too many progress lines
+                    if (now - lastLineTs < 150 && String(line).startsWith("Progress:")) return;
+                    lastLineTs = now;
+
+                    const t = new Date().toLocaleTimeString();
+                    logEl.textContent += `[${t}] ${line}
+`;
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+
+                function updateStepCounter() {
+                    if (stepCurrent === null) {
+                        stepCounterEl.textContent = "Step —";
+                    } else if (stepTotal === null || stepTotal === undefined) {
+                        stepCounterEl.textContent = `Step ${stepCurrent}/?`;
+                    } else {
+                        stepCounterEl.textContent = `Step ${stepCurrent}/${stepTotal}`;
+                    }
+                }
+
+                function resetDownloadUI(label, totalBytes) {
+                    downloadLabelEl.textContent = label || "—";
+
+                    if (!totalBytes) {
+                        // Indeterminate
+                        progressEl.removeAttribute("value");
+                        progressEl.max = 1;
+                        progressEl.value = 0;
+                        totalSizeEl.textContent = "—";
+                    } else {
+                        progressEl.max = totalBytes;
+                        progressEl.value = 0;
+                        totalSizeEl.textContent = formatBytes(totalBytes);
+                    }
+
+                    downloadedEl.textContent = formatBytes(0);
+                    speedEl.textContent = "—";
+                }
+
+                function sampleSpeed(bytesPerSecond) {
+                    const now = Date.now();
+                    const dt = now - (lastSpeedSampleTs || 0);
+
+                    // Ignore ultra-frequent samples to reduce jitter
+                    if (dt < 200) return;
+                    lastSpeedSampleTs = now;
+
+                    const inst = typeof bytesPerSecond === "number" ? bytesPerSecond : 0;
+                    const alpha = 0.2; // smoothing factor
+                    speedEma = speedEma ? alpha * inst + (1 - alpha) * speedEma : inst;
+                }
+
+                function scheduleRender() {
+                    if (renderScheduled) return;
+                    renderScheduled = true;
+
+                    requestAnimationFrame(() => {
+                        renderScheduled = false;
+                        renderPendingDownload();
+                    });
+                }
+
+                function renderPendingDownload() {
+                    if (!pendingDl) return;
+
+                    const { label, downloadedBytes, totalBytes } = pendingDl;
+
+                    downloadLabelEl.textContent = label || "—";
+                    downloadedEl.textContent = formatBytes(downloadedBytes || 0);
+                    speedEl.textContent = formatSpeed(speedEma);
+
+                    if (typeof totalBytes === "number" && totalBytes > 0) {
+                        progressEl.max = totalBytes;
+                        progressEl.value = Math.min(downloadedBytes || 0, totalBytes);
+                        totalSizeEl.textContent = formatBytes(totalBytes);
+                    } else {
+                        // Indeterminate <progress>: remove value attribute
+                        progressEl.removeAttribute("value");
+                        progressEl.max = 1;
+                        progressEl.value = 0;
+                        totalSizeEl.textContent = "—";
+                    }
+                }
+
+                const progress = {
+                    onStep: (info) => {
+                        if (typeof info.current === "number") stepCurrent = info.current;
+                        if (typeof info.total === "number") stepTotal = info.total;
+
+                        stepLabelEl.textContent = info.label || "—";
+                        subtitleEl.textContent = info.label || "Running…";
+                        updateStepCounter();
+
+                        if (info.label) log(info.label);
+                    },
+
+                    onDownloadStart: ({ label, totalBytes }) => {
+                        speedEma = 0;
+                        lastSpeedSampleTs = 0;
+                        lastProgressLogTs = 0;
+
+                        pendingDl = {
+                            label,
+                            downloadedBytes: 0,
+                            totalBytes: typeof totalBytes === "number" ? totalBytes : null,
+                        };
+
+                        resetDownloadUI(label, totalBytes);
+                        log(`Starting download: ${label || "—"}${totalBytes ? ` (${formatBytes(totalBytes)})` : ""}`);
+
+                        scheduleRender();
+                    },
+
+                    onDownloadProgress: ({ label, downloadedBytes, totalBytes, bytesPerSecond }) => {
+                        pendingDl = {
+                            label,
+                            downloadedBytes: typeof downloadedBytes === "number" ? downloadedBytes : 0,
+                            totalBytes: typeof totalBytes === "number" ? totalBytes : null,
+                        };
+
+                        sampleSpeed(bytesPerSecond);
+                        scheduleRender();
+
+                        // Throttle log lines (download callbacks can fire very frequently)
+                        const now = Date.now();
+                        if (now - lastProgressLogTs > 1000) {
+                            lastProgressLogTs = now;
+                            log(
+                                `Progress: ${label || "—"} ${formatBytes(downloadedBytes || 0)} / ${
+                                    totalBytes ? formatBytes(totalBytes) : "?"
+                                } @ ${formatSpeed(speedEma)}`
+                            );
+                        }
+                    },
+
+                    onDownloadEnd: ({ label, downloadedBytes, totalBytes }) => {
+                        // Force one last render so UI matches "complete"
+                        pendingDl = {
+                            label,
+                            downloadedBytes: typeof downloadedBytes === "number" ? downloadedBytes : 0,
+                            totalBytes: typeof totalBytes === "number" ? totalBytes : null,
+                        };
+                        scheduleRender();
+
+                        log(
+                            `Finished download: ${label || "—"} (${formatBytes(downloadedBytes || 0)}${
+                                totalBytes ? ` / ${formatBytes(totalBytes)}` : ""
+                            })`
+                        );
+                    },
+                };
+
+                function setTitle() {
+                    let op = "Install";
+                    if (action === "update") op = "Update";
+                    if (action === "update-deps") op = "Update dependencies";
+                    titleEl.textContent = `${op}: ${folder || "(unknown)"}`;
+                }
+
+                function closeWindow(force = false) {
+                    try {
+                        if (window.nw && nw.Window && nw.Window.get) {
+                            // close(force) exists in NW.js; force helps if something is still “busy”
+                            try {
+                                nw.Window.get().close(!!force);
+                                return;
+                            } catch {}
+                        }
+                    } catch {}
+                    try {
+                        window.close();
+                    } catch {}
+                }
+
+                async function runTask() {
+                    setTitle();
+                    overallEl.textContent = "Running…";
+                    isRunning = true;
+                    cancelRequested = false;
+                    setCloseButtonState();
+
+                    try {
+                        if (!folder) throw new Error("Missing folder parameter");
+
+                        if (action === "install") {
+                            await Module.installModuleWithProgress(folder, Module.DEFAULT_REPO, progress, {
+                                signal: abortController.signal,
+                            });
+                            // After install, immediately run dependency update task
+                            await Module.updateDependenciesTaskWithProgress(folder, progress, {
+                                signal: abortController.signal,
+                            });
+                        } else if (action === "update") {
+                            await Module.updateModulePreservingMultiversionsWithProgress(folder, progress, {
+                                signal: abortController.signal,
+                            });
+                        } else if (action === "update-deps") {
+                            await Module.updateDependenciesTaskWithProgress(folder, progress, {
+                                signal: abortController.signal,
+                            });
+                        } else {
+                            throw new Error(`Unknown action: ${action}`);
+                        }
+
+                        // If user clicked cancel very late (or something didn’t abort immediately),
+                        // honor the cancel request by uninstalling and closing anyway.
+                        if (cancelRequested || abortController.signal.aborted) {
+                            overallEl.textContent = "Canceled";
+                            subtitleEl.textContent = "Canceled (cleaning up)…";
+                            stepLabelEl.textContent = "Canceled (cleaning up)…";
+                            log("Cancel requested — cleaning up by uninstalling the module…");
+                            try {
+                                Module.uninstallModule(folder);
+                                log("Cleanup complete (module uninstalled).");
+                            } catch (e) {
+                                log(`Cleanup failed: ${e && e.message ? e.message : String(e)}`);
+                            }
+
+                            isRunning = false;
+                            setCloseButtonState();
+
+                            try {
+                                if (window.opener && typeof window.opener.onModuleTaskFinished === "function") {
+                                    window.opener.onModuleTaskFinished();
+                                }
+                            } catch {}
+
+                            closeWindow(true);
+                            return;
+                        }
+
+                        overallEl.textContent = "Done";
+                        isRunning = false;
+                        setCloseButtonState();
+                        subtitleEl.textContent = "Completed successfully.";
+                        stepLabelEl.textContent = "Completed successfully.";
+                        log("Completed successfully.");
+
+                        // Notify opener to refresh module list
+                        try {
+                            if (window.opener && typeof window.opener.onModuleTaskFinished === "function") {
+                                window.opener.onModuleTaskFinished();
+                            }
+                        } catch {}
+                    } catch (err) {
+                        const wasCanceled = cancelRequested || isAbortError(err);
+
+                        if (wasCanceled) {
+                            overallEl.textContent = "Canceled";
+                            subtitleEl.textContent = "Canceled (cleaning up)…";
+                            stepLabelEl.textContent = "Canceled (cleaning up)…";
+                            log("Canceled by user. Cleaning up by uninstalling the module…");
+
+                            // Cleanup via uninstall to avoid leaving broken files behind.
+                            try {
+                                Module.uninstallModule(folder);
+                                log("Cleanup complete (module uninstalled).");
+                            } catch (e) {
+                                log(`Cleanup failed: ${e && e.message ? e.message : String(e)}`);
+                            }
+                        } else {
+                            overallEl.textContent = "Failed";
+                            subtitleEl.textContent = "Failed.";
+                            stepLabelEl.textContent = "Failed.";
+                            log(`Failed: ${err && err.message ? err.message : String(err)}`);
+                            console.error(err);
+                        }
+
+                        isRunning = false;
+                        setCloseButtonState();
+
+                        // still notify opener (so buttons refresh)
+                        try {
+                            if (window.opener && typeof window.opener.onModuleTaskFinished === "function") {
+                                window.opener.onModuleTaskFinished();
+                            }
+                        } catch {}
+
+                        if (wasCanceled) {
+                            // Auto-close the status window after cancel + cleanup.
+                            closeWindow(true);
+                        }
+                    }
+                }
+
+                // Update timer
+                setInterval(() => {
+                    timeElapsedEl.textContent = `Elapsed ${formatDuration(Date.now() - startedAt)}`;
+                }, 500);
+
+                // Close/Cancel button
+                el("closeBtn").addEventListener("click", () => {
+                    // While running, this is a Cancel button with confirmation.
+                    if (isRunning) {
+                        if (cancelRequested) return;
+
+                        const ok = window.confirm(
+                            "Cancel this install/update? To avoid leaving broken files behind, canceling will uninstall the module."
+                        );
+                        if (!ok) return;
+
+                        cancelRequested = true;
+                        setCloseButtonState();
+                        overallEl.textContent = "Canceling…";
+                        subtitleEl.textContent = "Canceling…";
+                        stepLabelEl.textContent = "Canceling…";
+                        log("Cancel requested…");
+
+                        try {
+                            abortController.abort();
+                        } catch {}
+                        return;
+                    }
+
+                    // Not running: behave as Close.
+                    closeWindow(false);
+                });
+
+                // Keep theme in sync (optional)
+                try {
+                    GlobalSettings.updateThemeOnOpen(nw.Window.get());
+                } catch {}
+
+                setCloseButtonState();
+                runTask();
+            })();
+        </script>
+    </body>
+</html>

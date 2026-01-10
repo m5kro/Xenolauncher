@@ -54,7 +54,7 @@
         <script>
             let allGames = {};
             let currentQuery = "";
-            const currentVersion = "1.1.0";
+            const currentVersion = nw.App.manifest.version;
 
             // Compare "x.y.z" version strings. Returns true if remote > local.
             function hasUpdate(local, remote) {
@@ -349,7 +349,7 @@
                     if (!installedSet || installedSet.size === 0) return;
 
                     const localManifests = Module.readLocalManifests();
-                    const remote = await Module.fetchRemoteManifestsList();
+                    const remote = await Module.fetchRemoteManifestsList(Module.DEFAULT_REPO, { forceRefresh: true });
 
                     // Full updates
                     const fullUpdates = remote.filter((r) => {
@@ -361,7 +361,9 @@
                     // Dependency-only updates
                     let depUpdateFolders = new Set();
                     try {
-                        depUpdateFolders = await Module.checkDependencyUpdatesForFolders([...installedSet]);
+                        depUpdateFolders = await Module.checkDependencyUpdatesForFolders([...installedSet], {
+                            forceRefresh: true,
+                        });
                     } catch (e) {
                         console.warn("Dependency update scan failed:", e);
                     }
@@ -375,7 +377,7 @@
                                 `Would you like to open the Module Manager to install them now?`
                         );
                         if (wants) {
-                            openSubwindow("module-manager.html?showInstalled=1");
+                            openSubwindow("module-manager.html?showInstalled=1", null, null, 800, 600);
                         }
                     }
                 } catch (e) {
@@ -402,7 +404,13 @@
                     .addEventListener("click", () => openSubwindow("global-settings.html"));
                 document.getElementById("moduleManagerButton").addEventListener("click", () => {
                     const showInstalled = false;
-                    openSubwindow(`module-manager.html?showInstalled=${showInstalled ? "1" : "0"}`);
+                    openSubwindow(
+                        `module-manager.html?showInstalled=${showInstalled ? "1" : "0"}`,
+                        null,
+                        null,
+                        800,
+                        600
+                    );
                 });
 
                 const searchInput = document.getElementById("searchInput");

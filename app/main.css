@@ -471,8 +471,12 @@ tbody tr:hover {
 }
 
 /* --- Number input spinner color scheme --- */
-[data-theme="light"] input[type="number"] { color-scheme: light; }
-[data-theme="dark"]  input[type="number"] { color-scheme: dark; }
+[data-theme="light"] input[type="number"] {
+    color-scheme: light;
+}
+[data-theme="dark"] input[type="number"] {
+    color-scheme: dark;
+}
 
 /* --- Theme Variables --- */
 [data-theme="light"] {
@@ -553,4 +557,99 @@ tbody tr:hover {
     --table-bg-color: #1f2225;
     --header-bg-color: #2a2d31;
     --row-hover-bg: #2e3135;
+}
+
+/* --- Status Window (install/update) --- */
+.status-shell {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.status-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.status-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.status-subtitle {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.status-card {
+    background: var(--card-bg, rgba(0, 0, 0, 0.03));
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.status-label {
+    font-size: 12px;
+    opacity: 0.75;
+}
+
+.status-value {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-step {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.status-progress {
+    width: 100%;
+}
+
+.status-progress progress {
+    width: 100%;
+    height: 14px;
+}
+
+.status-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    margin-top: 10px;
+}
+
+.status-log {
+    max-height: 120px;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    line-height: 1.35;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+}
+
+.status-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    opacity: 0.85;
 }

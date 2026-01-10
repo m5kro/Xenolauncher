@@ -64,7 +64,7 @@
 
         <!-- Page logic -->
         <script>
-            const currentVersion = "1.1.0";
+            const currentVersion = nw.App.manifest.version;
 
             const s = GlobalSettings.loadGlobalSettings();
             document.getElementById("darkThemeToggle").checked = s.darkTheme;

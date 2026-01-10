@@ -13,6 +13,44 @@
     const archMap = { x64: "x86_64", arm64: "arm64" };
     const sysArch = archMap[os.arch()] || os.arch();
 
+    // Safe JSON reader (never throws)
+    function safeReadJson(filePath) {
+        try {
+            if (!fs.existsSync(filePath)) return null;
+            const raw = fs.readFileSync(filePath, "utf8");
+            return JSON.parse(raw);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ===== Dependency helpers =================================================
+    function depsFromManifest(manifest) {
+        const keys = ["dependencies", "deps", "dependency", "requires", "requirements"];
+        for (const k of keys) {
+            const v = manifest && manifest[k];
+            if (v && typeof v === "object") return v;
+        }
+        return {};
+    }
+
+    function resolveDepSpec(builds, arch = sysArch) {
+        if (!builds || typeof builds !== "object") return null;
+        const key = builds.universal ? "universal" : arch;
+        return builds[key] || null;
+    }
+
+    function countDepSteps(depsObj, arch = sysArch) {
+        if (!depsObj || typeof depsObj !== "object") return 0;
+        let steps = 0;
+        for (const [, builds] of Object.entries(depsObj)) {
+            steps += 1; // download step
+            const spec = resolveDepSpec(builds, arch);
+            if (spec && spec.unzip) steps += 1; // extraction step
+        }
+        return steps;
+    }
+
     // ===== GitHub URL helpers =================================================
     function getApiBase(r = DEFAULT_REPO) {
         return `https://api.github.com/repos/${r.owner}/${r.repo}/contents`;
@@ -24,6 +62,106 @@
     // ===== Local mod dir helpers =============================================
     function getModulesDir() {
         return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
+    }
+
+    // ===== Cache helpers =======================================================
+    const CACHE_SCHEMA = 1;
+    const REMOTE_MANIFESTS_CACHE_FILE = "remote-manifests-cache.json";
+    const DEP_UPDATE_CACHE_FILE = "dependency-updates-cache.json";
+
+    function getCacheDir() {
+        // Shared across NW.js windows
+        return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "cache");
+    }
+
+    function repoKey(r = DEFAULT_REPO) {
+        return `${r.owner}/${r.repo}@${r.branch}`;
+    }
+
+    function readCacheJson(filePath) {
+        return safeReadJson(filePath);
+    }
+
+    function writeJsonAtomic(filePath, obj) {
+        try {
+            ensureDir(path.dirname(filePath));
+            const tmp = `${filePath}.tmp`;
+            fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), "utf8");
+            fs.renameSync(tmp, filePath);
+        } catch (e) {
+            console.warn("Failed to write cache:", filePath, e);
+        }
+    }
+
+    // Remote manifests cache
+    let remoteManifestsMem = null;
+    let remoteManifestsRepoKey = null;
+    let remoteManifestsInflight = null;
+
+    function loadRemoteManifestsCache(repo = DEFAULT_REPO) {
+        const p = path.join(getCacheDir(), REMOTE_MANIFESTS_CACHE_FILE);
+        const cached = readCacheJson(p);
+        if (!cached || cached.schema !== CACHE_SCHEMA) return null;
+        if (cached.repoKey !== repoKey(repo)) return null;
+        if (!Array.isArray(cached.manifests)) return null;
+        return cached.manifests;
+    }
+
+    function saveRemoteManifestsCache(manifests, repo = DEFAULT_REPO) {
+        const p = path.join(getCacheDir(), REMOTE_MANIFESTS_CACHE_FILE);
+        writeJsonAtomic(p, {
+            schema: CACHE_SCHEMA,
+            repoKey: repoKey(repo),
+            fetchedAt: new Date().toISOString(),
+            manifests,
+        });
+    }
+
+    // Dependency update cache
+    let depUpdatesMem = null; // { schema, fetchedAt, updatesByFolder }
+    let depUpdatesInflight = null;
+
+    function loadDepUpdatesCache() {
+        const p = path.join(getCacheDir(), DEP_UPDATE_CACHE_FILE);
+        const cached = readCacheJson(p);
+        if (!cached || cached.schema !== CACHE_SCHEMA) return null;
+        if (!cached.updatesByFolder || typeof cached.updatesByFolder !== "object") return null;
+        return cached;
+    }
+
+    function saveDepUpdatesCache(updatesByFolder) {
+        const p = path.join(getCacheDir(), DEP_UPDATE_CACHE_FILE);
+        writeJsonAtomic(p, {
+            schema: CACHE_SCHEMA,
+            fetchedAt: new Date().toISOString(),
+            updatesByFolder,
+        });
+    }
+
+    // Clear a folder's "dependency updates available" flag in the shared cache after updates are applied
+    function clearDepUpdateFlag(folder) {
+        if (!folder) return;
+        try {
+            // Update disk cache (shared across windows)
+            const disk = loadDepUpdatesCache() || {
+                schema: CACHE_SCHEMA,
+                fetchedAt: new Date().toISOString(),
+                updatesByFolder: {},
+            };
+            if (!disk.updatesByFolder || typeof disk.updatesByFolder !== "object") disk.updatesByFolder = {};
+            disk.updatesByFolder[folder] = false;
+            disk.fetchedAt = new Date().toISOString();
+            saveDepUpdatesCache(disk.updatesByFolder);
+
+            // Update this window's memory cache too
+           depUpdatesMem = disk;
+        } catch (e) {
+            // best-effort
+        }
+    }
+
+    function invalidateDepUpdatesCache() {
+       depUpdatesMem = null;
     }
 
     function getInstalledModuleFolders() {
@@ -59,12 +197,16 @@
     }
 
     // ===== Remote manifests ===================================================
-    async function fetchRemoteManifest(folderName, repo = DEFAULT_REPO) {
+    async function fetchRemoteManifest(folderName, repo = DEFAULT_REPO, opts = {}) {
         const url = `${getRawBase(repo)}/modules/${folderName}/manifest.json`;
         try {
-            const res = await fetch(url);
+            const signal = opts && opts.signal;
+            throwIfAborted(signal);
+
+            const res = await fetch(url, signal ? { signal } : undefined);
             if (!res.ok) throw new Error(`status ${res.status}`);
             const json = await res.json();
+
             return {
                 folder: folderName,
                 name: json.name || folderName,
@@ -84,17 +226,66 @@
             };
         }
     }
-
-    async function fetchRemoteManifestsList(repo = DEFAULT_REPO) {
+    async function fetchRemoteManifestsListFromGitHub(repo = DEFAULT_REPO, opts = {}) {
         const url = `${getApiBase(repo)}/modules?ref=${repo.branch}`;
-        const res = await fetch(url);
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+
+        const res = await fetch(url, signal ? { signal } : undefined);
         if (!res.ok) throw new Error(`GitHub API error ${res.status}`);
         const items = await res.json();
         const dirs = items.filter((i) => i.type === "dir");
-        return Promise.all(dirs.map((d) => fetchRemoteManifest(d.name, repo)));
+        return Promise.all(dirs.map((d) => fetchRemoteManifest(d.name, repo, opts)));
     }
 
-    // ===== Version helpers ====================================================
+    async function fetchRemoteManifestsList(repo = DEFAULT_REPO, opts = {}) {
+        const forceRefresh = !!(opts && opts.forceRefresh);
+        const key = repoKey(repo);
+
+        // 1) Memory cache
+        if (!forceRefresh && remoteManifestsMem && remoteManifestsRepoKey === key) {
+            return remoteManifestsMem;
+        }
+
+        // 2) Disk cache
+        if (!forceRefresh) {
+            const disk = loadRemoteManifestsCache(repo);
+            if (disk) {
+                remoteManifestsMem = disk;
+                remoteManifestsRepoKey = key;
+                return disk;
+            }
+        }
+
+        // 3) De-dupe concurrent refreshes in this window
+        if (remoteManifestsInflight && remoteManifestsRepoKey === key) {
+            return remoteManifestsInflight;
+        }
+
+        remoteManifestsRepoKey = key;
+        remoteManifestsInflight = (async () => {
+            try {
+                const fresh = await fetchRemoteManifestsListFromGitHub(repo, opts);
+                remoteManifestsMem = fresh;
+                saveRemoteManifestsCache(fresh, repo);
+                return fresh;
+            } catch (e) {
+                // If GitHub rate-limits you, fall back to the last cached snapshot.
+                const fallback = loadRemoteManifestsCache(repo);
+                if (fallback) {
+                    console.warn("fetchRemoteManifestsList: GitHub fetch failed; using cached manifests:", e);
+                    remoteManifestsMem = fallback;
+                    return fallback;
+                }
+                throw e;
+            } finally {
+                remoteManifestsInflight = null;
+            }
+        })();
+
+        return remoteManifestsInflight;
+    }
+
     function normalizeVer(v) {
         return String(v || "")
             .trim()
@@ -132,22 +323,582 @@
     }
 
     // ===== Download / install modules ========================================
-    async function downloadDirectory(remoteDir, localDir, repo = DEFAULT_REPO) {
-        fs.mkdirSync(localDir, { recursive: true });
-        const res = await fetch(`${getApiBase(repo)}/${remoteDir}?ref=${repo.branch}`);
+    function safeCall(fn, arg) {
+        if (typeof fn === "function") {
+            try {
+                fn(arg);
+            } catch (e) {
+                console.warn("progress callback error:", e);
+            }
+        }
+    }
+    function nowMs() {
+        return Date.now();
+    }
+    function mkSpeedometer(minIntervalMs = 250, emaAlpha = 0.25) {
+        // Returns a bytes/sec estimate and avoids jitter when chunks arrive very frequently.
+        let lastT = nowMs();
+        let lastB = 0;
+        let ema = 0;
+
+        return (bytesNow) => {
+            const t = nowMs();
+            const dtMs = t - lastT;
+
+            // If we haven't accumulated enough time, keep returning the previous EMA.
+            if (dtMs < minIntervalMs) return ema;
+
+            const dt = dtMs / 1000;
+            const db = bytesNow - lastB;
+            const inst = dt > 0 ? db / dt : 0;
+
+            ema = ema ? emaAlpha * inst + (1 - emaAlpha) * ema : inst;
+
+            lastT = t;
+            lastB = bytesNow;
+
+            return ema;
+        };
+    }
+
+    function mkAbortError() {
+        const e = new Error("Aborted");
+        e.name = "AbortError";
+        return e;
+    }
+    function isAbortError(e) {
+        if (!e) return false;
+        if (e.name === "AbortError") return true;
+        const msg = String(e.message || e);
+        return /aborted|aborterror|canceled|cancelled/i.test(msg);
+    }
+    function throwIfAborted(signal) {
+        if (signal && signal.aborted) {
+            throw mkAbortError();
+        }
+    }
+
+    async function downloadUrlToFileWithProgress(url, destPath, progress, label = "Download", opts = {}) {
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+
+        const res = await fetch(url, signal ? { signal } : undefined);
+        if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+        const total = parseInt(res.headers.get("content-length") || "0", 10) || null;
+
+        safeCall(progress?.onDownloadStart, { label, totalBytes: total, url, destPath });
+
+        const body = res.body;
+        const ws = fs.createWriteStream(destPath);
+        let downloaded = 0;
+        const speedOf = mkSpeedometer();
+
+        const finishWrite = () =>
+            new Promise((resolve, reject) => {
+                ws.on("error", reject);
+                ws.end(resolve);
+            });
+
+        if (body && typeof body.getReader === "function") {
+            const reader = body.getReader();
+            try {
+                while (true) {
+                    throwIfAborted(signal);
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (value) {
+                        const buf = Buffer.from(value);
+                        ws.write(buf);
+                        downloaded += buf.length;
+                        safeCall(progress?.onDownloadProgress, {
+                            label,
+                            downloadedBytes: downloaded,
+                            totalBytes: total,
+                            bytesPerSecond: speedOf(downloaded),
+                        });
+                    }
+                }
+            } catch (e) {
+                if (isAbortError(e)) {
+                    try {
+                        ws.destroy();
+                    } catch {}
+                    try {
+                        fs.rmSync(destPath, { force: true });
+                    } catch {}
+                }
+                throw e;
+            } finally {
+                try {
+                    reader.releaseLock?.();
+                } catch {}
+                await finishWrite();
+            }
+        } else {
+            throwIfAborted(signal);
+            const buf = Buffer.from(await res.arrayBuffer());
+            fs.writeFileSync(destPath, buf);
+            downloaded = buf.length;
+            safeCall(progress?.onDownloadProgress, {
+                label,
+                downloadedBytes: downloaded,
+                totalBytes: total || downloaded,
+                bytesPerSecond: 0,
+            });
+        }
+
+        safeCall(progress?.onDownloadEnd, { label, downloadedBytes: downloaded, totalBytes: total || downloaded });
+        return { downloadedBytes: downloaded, totalBytes: total || downloaded };
+    }
+
+    async function listRemoteFilesRecursive(remoteDir, repo = DEFAULT_REPO, opts = {}) {
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+        const res = await fetch(`${getApiBase(repo)}/${remoteDir}?ref=${repo.branch}`, signal ? { signal } : undefined);
         if (!res.ok) throw new Error(`Failed to list ${remoteDir}: ${res.status}`);
         const items = await res.json();
+
+        const out = [];
         for (const item of items) {
-            const localPath = path.join(localDir, item.name);
             const remotePath = `${remoteDir}/${item.name}`;
             if (item.type === "dir") {
-                await downloadDirectory(remotePath, localPath, repo);
+                out.push(...(await listRemoteFilesRecursive(remotePath, repo, opts)));
             } else if (item.type === "file") {
-                const fileRes = await fetch(`${getRawBase(repo)}/${remotePath}`);
-                if (!fileRes.ok) continue;
-                const data = await fileRes.arrayBuffer();
-                fs.writeFileSync(localPath, Buffer.from(data));
+                out.push({ remotePath, size: typeof item.size === "number" ? item.size : 0 });
             }
+        }
+        return out;
+    }
+    async function downloadDirectoryWithProgress(remoteDir, localDir, repo = DEFAULT_REPO, progress, opts = {}) {
+        fs.mkdirSync(localDir, { recursive: true });
+
+        const signal = opts && opts.signal;
+
+        safeCall(progress?.onStep, { label: `Listing files…`, phase: "listing" });
+        throwIfAborted(signal);
+
+        const files = await listRemoteFilesRecursive(remoteDir, repo, opts);
+        const totalBytes = files.reduce((a, f) => a + (f.size || 0), 0) || null;
+
+        safeCall(progress?.onDownloadStart, { label: "Module download", totalBytes, remoteDir, localDir });
+
+        let downloadedTotal = 0;
+        const speedOf = mkSpeedometer();
+
+        for (const f of files) {
+            throwIfAborted(signal);
+
+            const rel = f.remotePath.substring(remoteDir.length + 1);
+            const localPath = path.join(localDir, ...rel.split("/"));
+            fs.mkdirSync(path.dirname(localPath), { recursive: true });
+
+            const url = `${getRawBase(repo)}/${f.remotePath}`;
+            const res = await fetch(url, signal ? { signal } : undefined);
+            if (!res.ok) continue;
+
+            const body = res.body;
+            const ws = fs.createWriteStream(localPath);
+
+            if (body && typeof body.getReader === "function") {
+                const reader = body.getReader();
+                try {
+                    while (true) {
+                        throwIfAborted(signal);
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        if (value) {
+                            const buf = Buffer.from(value);
+                            ws.write(buf);
+                            downloadedTotal += buf.length;
+                            safeCall(progress?.onDownloadProgress, {
+                                label: "Module download",
+                                downloadedBytes: downloadedTotal,
+                                totalBytes: totalBytes || downloadedTotal,
+                                bytesPerSecond: speedOf(downloadedTotal),
+                            });
+                        }
+                    }
+                } catch (e) {
+                    if (isAbortError(e)) {
+                        try {
+                            ws.destroy();
+                        } catch {}
+                        try {
+                            fs.rmSync(localPath, { force: true });
+                        } catch {}
+                    }
+                    throw e;
+                } finally {
+                    try {
+                        reader.releaseLock?.();
+                    } catch {}
+                    await new Promise((resolve, reject) => {
+                        ws.on("error", reject);
+                        ws.end(resolve);
+                    });
+                }
+            } else {
+                throwIfAborted(signal);
+                const data = await res.arrayBuffer();
+                const buf = Buffer.from(data);
+                fs.writeFileSync(localPath, buf);
+                downloadedTotal += buf.length;
+                safeCall(progress?.onDownloadProgress, {
+                    label: "Module download",
+                    downloadedBytes: downloadedTotal,
+                    totalBytes: totalBytes || downloadedTotal,
+                    bytesPerSecond: speedOf(downloadedTotal),
+                });
+                try {
+                    ws.end();
+                } catch {}
+            }
+        }
+
+        safeCall(progress?.onDownloadEnd, {
+            label: "Module download",
+            downloadedBytes: downloadedTotal,
+            totalBytes: totalBytes || downloadedTotal,
+        });
+
+        return { filesCount: files.length, totalBytes: totalBytes || downloadedTotal };
+    }
+
+    function makeStepper(progress) {
+        let current = 0;
+        let total = null;
+        return {
+            setTotal(n) {
+                total = typeof n === "number" ? n : null;
+                safeCall(progress?.onStepTotal, { total });
+            },
+            next(label) {
+                current += 1;
+                safeCall(progress?.onStep, { label, current, total });
+            },
+        };
+    }
+    async function installModuleDependenciesWithProgress(modulePath, progress, stepper, opts = {}) {
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+
+        const mf = path.join(modulePath, "manifest.json");
+        if (!fs.existsSync(mf)) return;
+
+        let manifest;
+        try {
+            manifest = JSON.parse(fs.readFileSync(mf, "utf8"));
+        } catch {
+            return;
+        }
+
+        const deps = depsFromManifest(manifest);
+        const depEntries = Object.entries(deps);
+        if (depEntries.length === 0) return;
+
+        const depsRoot = path.join(modulePath, "deps");
+        fs.mkdirSync(depsRoot, { recursive: true });
+
+        for (const [depName, builds] of depEntries) {
+            throwIfAborted(signal);
+
+            stepper?.next?.(`Downloading dependency: ${depName}`);
+
+            const spec = resolveDepSpec(builds, sysArch);
+            if (!spec || !spec.link) throw new Error(`No build for "${depName}" matching arch "${sysArch}"`);
+
+            const depDir = path.join(depsRoot, depName);
+            fs.mkdirSync(depDir, { recursive: true });
+
+            const fileName = path.basename(new URL(spec.link).pathname);
+            const archivePath = path.join(depDir, fileName);
+
+            await downloadUrlToFileWithProgress(spec.link, archivePath, progress, `Dependency: ${depName}`, opts);
+
+            if (spec.unzip) {
+                stepper?.next?.(`Extracting dependency: ${depName}`);
+                safeCall(progress?.onStep, { label: `Extracting dependency: ${depName}`, phase: "extracting" });
+                throwIfAborted(signal);
+                await extractArchive(archivePath, depDir, opts);
+                fs.rmSync(archivePath, { force: true });
+            }
+        }
+
+        try {
+            exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
+        } catch {}
+        try {
+            exec(`xattr -cr "${depsRoot}"`, () => {});
+        } catch {}
+        try {
+            exec(`chmod -R 700 "${depsRoot}"`, () => {});
+        } catch {}
+    }
+    async function updateDependenciesWithProgress(folder, progress, stepper, updatesOrOpts = null, maybeOpts = {}) {
+        let updates = null;
+        let opts = maybeOpts;
+        if (updatesOrOpts && typeof updatesOrOpts === "object" && "signal" in updatesOrOpts) {
+            opts = updatesOrOpts;
+        } else {
+            updates = updatesOrOpts;
+        }
+
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+
+        stepper?.next?.("Checking dependency updates…");
+
+        const resolvedUpdates = updates || (await getDependencyUpdates(folder));
+        const entries = Object.entries(resolvedUpdates || {});
+        if (!entries.length) {
+            safeCall(progress?.onStep, { label: "No dependency updates found.", phase: "done" });
+            return { updated: [] };
+        }
+
+        const modulePath = getModulePath(folder);
+        const depsRoot = path.join(modulePath, "deps");
+        fs.mkdirSync(depsRoot, { recursive: true });
+
+        const updatedDeps = [];
+
+        for (const [depName, builds] of entries) {
+            throwIfAborted(signal);
+
+            stepper?.next?.(`Updating dependency: ${depName}`);
+
+            try {
+                removeDependencyLocal(folder, depName);
+            } catch {}
+
+            const spec = resolveDepSpec(builds, sysArch);
+            if (!spec || !spec.link) throw new Error(`No update spec for "${depName}" matching arch "${sysArch}"`);
+
+            const depDir = path.join(depsRoot, depName);
+            fs.mkdirSync(depDir, { recursive: true });
+
+            const fileName = path.basename(new URL(spec.link).pathname);
+            const archivePath = path.join(depDir, fileName);
+
+            await downloadUrlToFileWithProgress(spec.link, archivePath, progress, `Dependency: ${depName}`, opts);
+
+            if (spec.unzip) {
+                stepper?.next?.(`Extracting dependency: ${depName}`);
+                safeCall(progress?.onStep, { label: `Extracting dependency: ${depName}`, phase: "extracting" });
+                throwIfAborted(signal);
+                await extractArchive(archivePath, depDir, opts);
+                fs.rmSync(archivePath, { force: true });
+            }
+
+            updatedDeps.push(depName);
+        }
+
+        if (updatedDeps.length > 0) {
+            stepper?.next?.("Running post-update…");
+            await runPostUpdate(folder, updatedDeps);
+        }
+
+        try {
+            exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
+        } catch {}
+        try {
+            exec(`xattr -cr "${depsRoot}"`, () => {});
+        } catch {}
+        try {
+            exec(`chmod -R 700 "${depsRoot}"`, () => {});
+        } catch {}
+
+        clearDepUpdateFlag(folder);
+        return { updated: updatedDeps };
+    }
+
+    async function updateDependenciesTaskWithProgress(folder, progress, opts = {}) {
+        const stepper = makeStepper(progress);
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+
+        // Pre-compute updates so we can set an accurate total
+        const updates = await getDependencyUpdates(folder);
+        const entries = Object.entries(updates || {});
+
+        const updateSteps = entries.reduce((sum, [, builds]) => {
+            const spec = resolveDepSpec(builds, sysArch);
+            return sum + 1 + (spec && spec.unzip ? 1 : 0);
+        }, 0);
+
+        const willRunPostUpdate = entries.length > 0 ? 1 : 0;
+
+        stepper.setTotal(1 + updateSteps + willRunPostUpdate + 1);
+
+        await updateDependenciesWithProgress(folder, progress, stepper, updates, opts);
+
+        stepper.next("Done.");
+        clearDepUpdateFlag(folder);
+        return true;
+    }
+    async function installModuleWithProgress(folder, repo = DEFAULT_REPO, progress, opts = {}) {
+        const stepper = makeStepper(progress);
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
+
+        // Use remote manifest to estimate total steps early.
+        let remoteDeps = {};
+        try {
+            const remote = await fetchRemoteManifest(folder, repo, opts);
+            remoteDeps = depsFromManifest(remote.raw);
+        } catch {}
+
+        let depSteps = countDepSteps(remoteDeps, sysArch);
+        // download + deps (download/extract) + done
+        stepper.setTotal(1 + depSteps + 1);
+
+        stepper.next(`Downloading module: ${folder}`);
+
+        const remoteRoot = `modules/${folder}`;
+        const localRoot = path.join(getModulesDir(), folder);
+
+        try {
+            if (fs.existsSync(localRoot)) fs.rmSync(localRoot, { recursive: true, force: true });
+
+            await downloadDirectoryWithProgress(remoteRoot, localRoot, repo, progress, opts);
+
+            // Re-check deps from the freshly downloaded manifest
+            const localManifest = safeReadJson(path.join(localRoot, "manifest.json")) || {};
+            const localDeps = depsFromManifest(localManifest);
+            const localDepSteps = countDepSteps(localDeps, sysArch);
+
+            if (localDepSteps !== depSteps) {
+                depSteps = localDepSteps;
+                stepper.setTotal(1 + depSteps + 1);
+            }
+
+            if (Object.keys(localDeps).length > 0) {
+                await installModuleDependenciesWithProgress(localRoot, progress, stepper, opts);
+            }
+
+            stepper.next("Done.");
+            return true;
+        } catch (e) {
+            if (isAbortError(e)) {
+                // User asked to clean up via uninstall to avoid leaving damaged files.
+                try {
+                    uninstallModule(folder);
+                } catch {
+                    try {
+                        fs.rmSync(localRoot, { recursive: true, force: true });
+                    } catch {}
+                }
+                throw mkAbortError();
+            }
+            throw e;
+        }
+    }
+
+    // superlong name :P
+    async function updateModulePreservingMultiversionsWithProgress(folder, progress, opts = {}) {
+        const signal = opts && opts.signal;
+
+        let stashBase = null;
+        try {
+            safeCall(progress?.onStep, { label: "Preparing update…", phase: "prepare" });
+            throwIfAborted(signal);
+
+            const appSupport = GlobalSettings.getAppSupportDir();
+            const modRoot = path.join(appSupport, "modules", folder);
+            const depsRoot = path.join(modRoot, "deps");
+            const manifestPath = path.join(modRoot, "manifest.json");
+
+            const oldManifest = safeReadJson(manifestPath) || {};
+            const oldMultiKeys = extractMultiVersionKeys(oldManifest);
+            const toPreserve = [];
+            for (const key of oldMultiKeys) {
+                const p = path.join(depsRoot, key);
+                if (fs.existsSync(p)) toPreserve.push({ key, abs: p });
+            }
+
+            safeCall(progress?.onStep, { label: "Preserving multi-version dependencies…", phase: "preserve" });
+            throwIfAborted(signal);
+
+            stashBase = path.join(appSupport, ".xeno-preserve", `${folder}-${Date.now()}`);
+            const stashRoot = path.join(stashBase, "deps");
+            ensureDir(stashRoot);
+
+            for (const item of toPreserve) {
+                const dest = path.join(stashRoot, item.key);
+                moveDirOrCopy(item.abs, dest);
+            }
+
+            safeCall(progress?.onStep, { label: "Updating module files…", phase: "update" });
+            throwIfAborted(signal);
+
+            try {
+                Module.uninstallModule(folder);
+            } catch (e) {
+                console.warn("uninstallModule failed (continuing):", e);
+            }
+            await installModuleWithProgress(folder, DEFAULT_REPO, progress, opts);
+
+            safeCall(progress?.onStep, { label: "Restoring preserved versions…", phase: "restore" });
+            throwIfAborted(signal);
+
+            const newManifest = safeReadJson(manifestPath) || {};
+            const newMultiKeys = new Set(extractMultiVersionKeys(newManifest));
+            ensureDir(depsRoot);
+
+            for (const { key } of toPreserve) {
+                if (!newMultiKeys.has(key)) continue;
+                const src = path.join(stashRoot, key);
+                const dest = path.join(depsRoot, key);
+                if (!fs.existsSync(src)) continue;
+
+                try {
+                    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+                } catch {}
+                moveDirOrCopy(src, dest);
+            }
+
+            for (const { key } of toPreserve) {
+                if (!newMultiKeys.has(key)) {
+                    const orphan = path.join(depsRoot, key);
+                    try {
+                        fs.rmSync(orphan, { recursive: true, force: true });
+                    } catch {}
+                }
+            }
+
+            safeCall(progress?.onStep, { label: "Cleaning up…", phase: "cleanup" });
+            throwIfAborted(signal);
+
+            // Clean only THIS job’s stash (never the whole parent dir unless empty)
+            try {
+                if (stashBase) fs.rmSync(stashBase, { recursive: true, force: true });
+            } catch {}
+            try {
+                const preserveDir = path.join(appSupport, ".xeno-preserve");
+                if (fs.existsSync(preserveDir) && fs.readdirSync(preserveDir).length === 0) {
+                    fs.rmSync(preserveDir, { recursive: true, force: true });
+                }
+            } catch {}
+
+            safeCall(progress?.onStep, { label: "Finalizing…", phase: "finalize" });
+            throwIfAborted(signal);
+
+            await fixQuarantineAndPerms(depsRoot);
+        } catch (e) {
+            // On cancel/abort (or any failure), do best-effort cleanup: remove partially updated module + this job’s stash.
+            const aborted = isAbortError(e);
+            try {
+                if (folder) Module.uninstallModule(folder);
+            } catch {}
+            try {
+                if (stashBase) fs.rmSync(stashBase, { recursive: true, force: true });
+                const appSupport = GlobalSettings.getAppSupportDir();
+                const preserveDir = path.join(appSupport, ".xeno-preserve");
+                if (fs.existsSync(preserveDir) && fs.readdirSync(preserveDir).length === 0) {
+                    fs.rmSync(preserveDir, { recursive: true, force: true });
+                }
+            } catch {}
+            if (aborted) throw mkAbortError();
+            throw e;
         }
     }
 
@@ -180,26 +931,95 @@
         return true;
     }
 
-    async function extractArchive(archivePath, destDir) {
+    async function extractArchive(archivePath, destDir, opts = {}) {
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
         fs.mkdirSync(destDir, { recursive: true });
+
+        const { pipeline } = require("node:stream/promises");
+
+        function attachAbort(streams) {
+            if (!signal) return () => {};
+            if (signal.aborted) throw mkAbortError();
+
+            const onAbort = () => {
+                for (const s of streams) {
+                    try {
+                        if (s && typeof s.destroy === "function") s.destroy(mkAbortError());
+                    } catch {}
+                }
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            return () => {
+                try {
+                    signal.removeEventListener("abort", onAbort);
+                } catch {}
+            };
+        }
+
+        // Ensure extracted path stays within destDir
+        function safeJoin(base, rel) {
+            const target = path.resolve(base, rel);
+            const baseResolved = path.resolve(base) + path.sep;
+            if (!target.startsWith(baseResolved)) return null;
+            return target;
+        }
 
         if (isZipPath(archivePath)) {
             let unzipper;
             try {
                 unzipper = require("unzipper");
             } catch {
-                throw new Error(
-                    'Archive extraction requested ZIP, but "unzipper" is not installed. Did you follow the build instructions?'
-                );
+                throw new Error('Archive extraction requested ZIP, but "unzipper" is not installed.');
             }
 
-            await new Promise((resolve, reject) => {
-                fs.createReadStream(archivePath)
-                    .pipe(unzipper.Extract({ path: destDir }))
-                    .on("close", resolve)
-                    .on("error", reject);
-            });
-            return;
+            const rs = fs.createReadStream(archivePath);
+            const parser = unzipper.Parse({ forceStream: true });
+            const stream = rs.pipe(parser);
+
+            const detach = attachAbort([rs, stream, parser]);
+
+            try {
+                for await (const entry of stream) {
+                    throwIfAborted(signal);
+
+                    const relPath = (entry.path || "").replace(/\\/g, "/");
+                    if (!safeArchiveEntryPath(relPath)) {
+                        try {
+                            entry.autodrain();
+                        } catch {}
+                        continue;
+                    }
+
+                    const outPath = safeJoin(destDir, relPath);
+                    if (!outPath) {
+                        try {
+                            entry.autodrain();
+                        } catch {}
+                        continue;
+                    }
+
+                    if (entry.type === "Directory") {
+                        fs.mkdirSync(outPath, { recursive: true });
+                        try {
+                            entry.autodrain();
+                        } catch {}
+                        continue;
+                    }
+
+                    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+                    await pipeline(entry, fs.createWriteStream(outPath));
+                }
+                return;
+            } catch (e) {
+                if (isAbortError(e) || (signal && signal.aborted)) throw mkAbortError();
+                throw e;
+            } finally {
+                detach();
+                try {
+                    rs.close?.();
+                } catch {}
+            }
         }
 
         if (isTarGzPath(archivePath) || isTarXzPath(archivePath) || isTarPath(archivePath)) {
@@ -207,104 +1027,67 @@
             try {
                 tar = require("tar");
             } catch {
-                throw new Error(
-                    'Archive extraction requested TAR, but "tar" is not installed. Did you follow the build instructions?'
-                );
+                throw new Error('Archive extraction requested TAR, but "tar" is not installed.');
             }
 
-            if (isTarGzPath(archivePath) || isTarPath(archivePath)) {
-                const gzip = isTarGzPath(archivePath);
+            const src = fs.createReadStream(archivePath);
+            const streams = [src];
+            const detach = attachAbort(streams);
 
-                await tar.x({
-                    file: archivePath,
-                    cwd: destDir,
-                    gzip,
-                    preserveOwner: false,
-                    // prevent path traversal / absolute paths
-                    filter: (p /*, entry */) => safeArchiveEntryPath(p),
-                });
-                return;
-            }
-
-            if (isTarXzPath(archivePath)) {
-                let lzma;
-                try {
-                    lzma = require("lzma-native");
-                } catch {
-                    throw new Error(
-                        'Archive extraction requested TAR.XZ, but "lzma-native" is not installed. Did you follow the build instructions?'
-                    );
+            try {
+                if (isTarGzPath(archivePath)) {
+                    const zlib = require("zlib");
+                    const gunzip = zlib.createGunzip();
+                    const tx = tar.x({
+                        cwd: destDir,
+                        gzip: false,
+                        preserveOwner: false,
+                        filter: (p) => safeArchiveEntryPath(p),
+                    });
+                    streams.push(gunzip, tx);
+                    await pipeline(src, gunzip, tx);
+                    return;
                 }
-                const { pipeline } = require("node:stream/promises");
-                await pipeline(
-                    fs.createReadStream(archivePath),
-                    lzma.createDecompressor(),
-                    tar.x({ cwd: destDir, preserveOwner: false, filter: (p) => safeArchiveEntryPath(p) })
-                );
-                return;
+
+                if (isTarPath(archivePath)) {
+                    const tx = tar.x({
+                        cwd: destDir,
+                        gzip: false,
+                        preserveOwner: false,
+                        filter: (p) => safeArchiveEntryPath(p),
+                    });
+                    streams.push(tx);
+                    await pipeline(src, tx);
+                    return;
+                }
+
+                if (isTarXzPath(archivePath)) {
+                    let lzma;
+                    try {
+                        lzma = require("lzma-native");
+                    } catch {
+                        throw new Error('Archive extraction requested TAR.XZ, but "lzma-native" is not installed.');
+                    }
+                    const dec = lzma.createDecompressor();
+                    const tx = tar.x({
+                        cwd: destDir,
+                        preserveOwner: false,
+                        filter: (p) => safeArchiveEntryPath(p),
+                    });
+                    streams.push(dec, tx);
+                    await pipeline(src, dec, tx);
+                    return;
+                }
+            } catch (e) {
+                if (isAbortError(e) || (signal && signal.aborted)) throw mkAbortError();
+                throw e;
+            } finally {
+                detach();
             }
         }
+
         throw new Error(`Unsupported archive type: ${path.basename(archivePath)}`);
     }
-
-    async function installModuleDependencies(modulePath) {
-        const mf = path.join(modulePath, "manifest.json");
-        if (!fs.existsSync(mf)) return;
-        let manifest;
-        try {
-            manifest = JSON.parse(fs.readFileSync(mf, "utf8"));
-        } catch {
-            return;
-        }
-        const deps = manifest.dependencies || {};
-        if (Object.keys(deps).length === 0) return;
-
-        const depsRoot = path.join(modulePath, "deps");
-        fs.mkdirSync(depsRoot, { recursive: true });
-
-        for (const [depName, builds] of Object.entries(deps)) {
-            const depDir = path.join(depsRoot, depName);
-            fs.mkdirSync(depDir, { recursive: true });
-            const key = builds.universal ? "universal" : sysArch;
-            if (!builds[key]) throw new Error(`No build for "${depName}" matching arch "${sysArch}"`);
-            const { link, unzip } = builds[key];
-
-            const res = await fetch(link);
-            if (!res.ok) throw new Error(`Failed to download ${depName} from ${link}: ${res.status}`);
-            const buf = Buffer.from(await res.arrayBuffer());
-            const fileName = path.basename(new URL(link).pathname);
-            const archivePath = path.join(depDir, fileName);
-            fs.writeFileSync(archivePath, buf);
-
-            if (unzip) {
-                await extractArchive(archivePath, depDir);
-                fs.rmSync(archivePath, { force: true });
-            }
-        }
-
-        // permissions
-        exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
-        exec(`xattr -cr "${depsRoot}"`, () => {});
-        exec(`chmod -R 700 "${depsRoot}"`, () => {});
-    }
-
-    async function installModule(folder, repo = DEFAULT_REPO) {
-        const remoteRoot = `modules/${folder}`;
-        const localRoot = path.join(getModulesDir(), folder);
-        await downloadDirectory(remoteRoot, localRoot, repo);
-        if (fs.existsSync(localRoot)) {
-            // 1) Initial dependency install
-            await installModuleDependencies(localRoot);
-
-            // 2) Immediately trigger dependency updates, if supported
-            try {
-                await updateDependencies(folder);
-            } catch (e) {
-                console.warn(`Dependency update check failed for "${folder}" (continuing):`, e);
-            }
-        }
-    }
-
     function uninstallModule(folder) {
         const localRoot = path.join(getModulesDir(), folder);
         if (fs.existsSync(localRoot)) fs.rmSync(localRoot, { recursive: true, force: true });
@@ -644,86 +1427,91 @@
         return Object.keys(map).length > 0;
     }
 
-    async function checkDependencyUpdatesForFolders(folders) {
-        const result = new Set();
-        for (const f of folders) {
+    async function checkDependencyUpdatesForFolders(folders, opts = {}) {
+        const forceRefresh = !!(opts && opts.forceRefresh);
+
+        // Cache read
+        if (!forceRefresh) {
             try {
-                if (await hasDependencyUpdates(f)) result.add(f);
-            } catch (e) {
-                console.warn("checkDependencyUpdatesForFolders failed for", f, e);
+                const disk = loadDepUpdatesCache();
+                if (disk && (!depUpdatesMem ||depUpdatesMem.fetchedAt !== disk.fetchedAt)) {
+                   depUpdatesMem = disk;
+                }
+            } catch {}
+
+            if (depUpdatesMem &&depUpdatesMem.updatesByFolder) {
+                const set = new Set();
+                for (const f of folders) if (depUpdatesMem.updatesByFolder[f]) set.add(f);
+                return set;
             }
         }
-        return result;
+
+        // De-dupe concurrent refreshes in this window
+        if (depUpdatesInflight) {
+            const cache = await depUpdatesInflight;
+            const set = new Set();
+            for (const f of folders) if (cache.updatesByFolder && cache.updatesByFolder[f]) set.add(f);
+            return set;
+        }
+
+        depUpdatesInflight = (async () => {
+            // Merge into any existing cache so we don't "forget" folders we aren't checking now.
+            const base =
+                (depUpdatesMem && depUpdatesMem.updatesByFolder) ||
+                (loadDepUpdatesCache() || {}).updatesByFolder ||
+                {};
+            const updatesByFolder = { ...base };
+
+            for (const f of folders) {
+                try {
+                    updatesByFolder[f] = !!(await hasDependencyUpdates(f));
+                } catch (e) {
+                    console.warn("checkDependencyUpdatesForFolders failed for", f, e);
+                    // keep prior cached value if we have it, otherwise assume false
+                    updatesByFolder[f] = !!updatesByFolder[f];
+                }
+            }
+
+            const cacheObj = {
+                schema: CACHE_SCHEMA,
+                fetchedAt: new Date().toISOString(),
+                updatesByFolder,
+            };
+           depUpdatesMem = cacheObj;
+            saveDepUpdatesCache(updatesByFolder);
+            return cacheObj;
+        })();
+
+        try {
+            const cache = await depUpdatesInflight;
+            const set = new Set();
+            for (const f of folders) if (cache.updatesByFolder && cache.updatesByFolder[f]) set.add(f);
+            return set;
+        } finally {
+            depUpdatesInflight = null;
+        }
     }
+    async function installOneDependency(depName, builds, depsRoot, opts = {}) {
+        const signal = opts && opts.signal;
+        throwIfAborted(signal);
 
-    async function installOneDependency(folder, depName, builds) {
-        const modulePath = getModulePath(folder);
-        const depsRoot = path.join(modulePath, "deps");
-        fs.mkdirSync(depsRoot, { recursive: true });
-
-        const key = builds.universal ? "universal" : sysArch;
-        const spec = builds[key];
-        if (!spec) throw new Error(`No update spec for "${depName}" matching arch "${sysArch}"`);
+        const spec = resolveDepSpec(builds, sysArch);
+        if (!spec || !spec.link) throw new Error(`No dependency spec for "${depName}" matching arch "${sysArch}"`);
 
         const depDir = path.join(depsRoot, depName);
         fs.mkdirSync(depDir, { recursive: true });
 
-        // Download
-        const res = await fetch(spec.link);
-        if (!res.ok) throw new Error(`Failed to download ${depName} from ${spec.link}: ${res.status}`);
-        const buf = Buffer.from(await res.arrayBuffer());
         const fileName = path.basename(new URL(spec.link).pathname);
         const archivePath = path.join(depDir, fileName);
-        fs.writeFileSync(archivePath, buf);
+
+        await downloadUrlToFileWithProgress(spec.link, archivePath, null, `Dependency: ${depName}`, opts);
 
         if (spec.unzip) {
-            await extractArchive(archivePath, depDir);
+            throwIfAborted(signal);
+            await extractArchive(archivePath, depDir, opts);
             fs.rmSync(archivePath, { force: true });
         }
     }
-
-    async function updateDependencies(folder) {
-        const updates = await getDependencyUpdates(folder);
-        if (!updates || Object.keys(updates).length === 0) return;
-
-        const modulePath = getModulePath(folder);
-        const depsRoot = path.join(modulePath, "deps");
-        fs.mkdirSync(depsRoot, { recursive: true });
-
-        const updatedDeps = [];
-
-        for (const [depName, builds] of Object.entries(updates)) {
-            try {
-                // Remove existing dep first
-                removeDependencyLocal(folder, depName);
-
-                // Install new files
-                await installOneDependency(folder, depName, builds);
-
-                // Mark success (only if installOneDependency didn't throw)
-                updatedDeps.push(depName);
-            } catch (e) {
-                console.warn(`Failed to update dependency "${depName}" for ${folder}:`, e);
-            }
-        }
-
-        // Only run postupdate.js if at least one dependency update succeeded
-        if (updatedDeps.length > 0) {
-            await runPostUpdate(folder, updatedDeps);
-        }
-
-        // The customer is always wrong. - Apple
-        try {
-            exec(`chown -R "${os.userInfo().uid}" "${depsRoot}"`, () => {});
-        } catch {}
-        try {
-            exec(`xattr -cr "${depsRoot}"`, () => {});
-        } catch {}
-        try {
-            exec(`chmod -R 700 "${depsRoot}"`, () => {});
-        } catch {}
-    }
-
     async function runPostUpdate(folder, updatedDeps) {
         try {
             const fn = await loadPostUpdateProvider(folder);
@@ -813,86 +1601,6 @@
      * Full update that preserves every multi-version directory in deps/<argKey>/...
      * If the updated manifest removes a multi-version variable entirely, its deps/<argKey> folder is deleted.
      */
-    async function updateModulePreservingMultiversions(folder) {
-        const appSupport = GlobalSettings.getAppSupportDir(); // used throughout your pages to locate modules :contentReference[oaicite:5]{index=5}
-        const modRoot = path.join(appSupport, "modules", folder);
-        const depsRoot = path.join(modRoot, "deps");
-        const manifestPath = path.join(modRoot, "manifest.json");
-
-        // 1) Discover which multi-version roots to keep (from CURRENT/OLD manifest)
-        const oldManifest = safeReadJson(manifestPath) || {};
-        const oldMultiKeys = extractMultiVersionKeys(oldManifest); // e.g., ["version"] for NW.js
-        const toPreserve = [];
-        for (const key of oldMultiKeys) {
-            const p = path.join(depsRoot, key); // e.g., deps/version
-            if (fs.existsSync(p)) toPreserve.push({ key, abs: p });
-        }
-
-        // Create a temp stash outside the module dir
-        const stashRoot = path.join(appSupport, ".xeno-preserve", `${folder}-${Date.now()}`, "deps");
-        ensureDir(stashRoot);
-
-        // 2) Stash the preserved dirs (rename or copy)
-        for (const item of toPreserve) {
-            const dest = path.join(stashRoot, item.key);
-            moveDirOrCopy(item.abs, dest);
-        }
-
-        // 3) Do the update with your existing primitives
-        //    (we deliberately reuse uninstall+install, because install expects a clean root today) :contentReference[oaicite:6]{index=6}
-        try {
-            Module.uninstallModule(folder);
-        } catch (e) {
-            console.warn("uninstallModule failed (continuing):", e);
-        }
-        await Module.installModule(folder);
-
-        // 4) Check multi-version keys AFTER the update (new manifest)
-        const newManifest = safeReadJson(manifestPath) || {};
-        const newMultiKeys = new Set(extractMultiVersionKeys(newManifest)); // if key removed, we won't restore it
-
-        // 5) Restore preserved dirs whose multi-version variable still exists in the updated manifest
-        ensureDir(depsRoot);
-        for (const { key } of toPreserve) {
-            const stash = path.join(stashRoot, key);
-            if (!fs.existsSync(stash)) continue;
-
-            if (newMultiKeys.has(key)) {
-                const dest = path.join(depsRoot, key);
-                ensureDir(dest);
-
-                // Merge version subfolders back without overwriting any freshly created ones
-                if (fs.existsSync(stash)) {
-                    for (const name of fs.readdirSync(stash)) {
-                        const from = path.join(stash, name); // e.g., deps/<key>/<version>
-                        const to = path.join(dest, name);
-                        if (!fs.existsSync(to)) {
-                            moveDirOrCopy(from, to);
-                        }
-                    }
-                }
-            }
-            // Whether restored or not, clear the stash for this key
-            fs.rmSync(stash, { recursive: true, force: true });
-        }
-
-        // 6) Remove any deps/<key> that no longer has a multi-version variable in the new manifest
-        for (const { key } of toPreserve) {
-            if (!newMultiKeys.has(key)) {
-                const orphan = path.join(depsRoot, key);
-                try {
-                    fs.rmSync(orphan, { recursive: true, force: true });
-                } catch {}
-            }
-        }
-
-        // 7) Cleanup + best-effort permission fixes (mirrors Version Manager’s post‑install) :contentReference[oaicite:7]{index=7}
-        try {
-            fs.rmSync(path.join(appSupport, ".xeno-preserve"), { recursive: true, force: true });
-        } catch {}
-        await fixQuarantineAndPerms(depsRoot);
-    }
-
     // Fix game args after module updates
     function mergeGameArgsWithSchema(savedArgs, schema) {
         const has = Object.prototype.hasOwnProperty;
@@ -969,9 +1677,8 @@
         hasUpdate,
 
         // install / uninstall
-        downloadDirectory,
-        installModuleDependencies,
-        installModule,
+        downloadDirectoryWithProgress,
+        installModuleWithProgress,
         uninstallModule,
 
         // autodetect
@@ -990,12 +1697,15 @@
         getDependencyUpdates,
         hasDependencyUpdates,
         checkDependencyUpdatesForFolders,
-        updateDependencies,
+        clearDepUpdateFlag,
+        invalidateDepUpdatesCache,
+        updateDependenciesWithProgress,
+        updateDependenciesTaskWithProgress,
         removeDependency,
         installDependency,
 
         // multi-version preserving update
-        updateModulePreservingMultiversions,
+        updateModulePreservingMultiversionsWithProgress,
 
         // game args updater
         mergeGameArgsWithSchema,

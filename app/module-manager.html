@@ -51,6 +51,7 @@
         </div>
 
         <!-- Shared scripts -->
+        <script src="window-utils.js"></script>
         <script src="module.js"></script>
 
         <!-- Page logic -->
@@ -68,7 +69,26 @@
                 const searchInput = document.getElementById("moduleSearch");
                 const installedOnlyCb = document.getElementById("installedOnly");
 
-                document.getElementById("refresh-btn").addEventListener("click", fetchModules);
+                document.getElementById("refresh-btn").addEventListener("click", async () => {
+                    const btn = document.getElementById("refresh-btn");
+                    btn.disabled = true;
+                    const old = btn.textContent;
+                    btn.textContent = "Refreshing…";
+                    try {
+                        await fetchModules({ forceRefresh: true });
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = old;
+                    }
+                });
+
+                // Called by status.html when an install/update finishes
+                window.onModuleTaskFinished = async function () {
+                    try {
+                        Module.invalidateDepUpdatesCache?.();
+                        await fetchModules();
+                    } catch (_) {}
+                };
                 document.getElementById("closeButton").addEventListener("click", () => nw.Window.get().close());
                 searchInput.addEventListener("input", (e) => filterModules(e.target.value));
                 installedOnlyCb.addEventListener("change", (e) => {
@@ -116,17 +136,29 @@
                     renderTable(sorted, installedSet);
                 }
 
-                async function fetchModules() {
+                async function fetchModules(opts = {}) {
                     const container = document.getElementById("modules-container");
                     container.innerHTML = "<p>Loading modules…</p>";
+
+                    const forceRefresh = !!opts.forceRefresh;
+                    if (forceRefresh) {
+                        console.log("Forcing refresh of remote module list and dependency update scan.");
+                    } else {
+                        console.log("Fetching module list from cache if available.");
+                    }
+
                     try {
-                        const manifests = await Module.fetchRemoteManifestsList();
+                        // Only hit GitHub when forceRefresh=true
+                        const manifests = await Module.fetchRemoteManifestsList(Module.DEFAULT_REPO, { forceRefresh });
+
                         installedSet = Module.getInstalledModuleFolders();
                         moduleManifests = Module.readLocalManifests();
 
-                        // Pre-scan installed modules for dependency updates
+                        // Only hit network when forceRefresh=true
                         try {
-                            depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]);
+                            depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet], {
+                                forceRefresh,
+                            });
                         } catch (scanErr) {
                             console.warn("Dependency update scan failed:", scanErr);
                             depUpdatesSet = new Set();
@@ -157,19 +189,15 @@
                     const btn = document.createElement("button");
                     btn.className = "primary-button";
                     btn.textContent = "Install";
-                    btn.addEventListener("click", async () => {
+                    btn.addEventListener("click", () => {
                         btn.disabled = true;
                         btn.textContent = "Installing…";
-                        try {
-                            await Module.installModule(folder);
-                            installedSet.add(folder);
-                            moduleManifests = Module.readLocalManifests();
-                            btn.replaceWith(makeUninstallOrUpdateButton(folder));
-                            filterModules(moduleQuery);
-                        } catch (e) {
-                            console.error(e);
-                            btn.textContent = "Error";
-                            btn.disabled = false;
+                        // Run installs in a dedicated status window so user clicks don’t interrupt the process
+                        const url = `status.html?action=install&folder=${encodeURIComponent(folder)}`;
+                        if (typeof openSubwindow === "function") {
+                            openSubwindow(url, null, null, 600, 450);
+                        } else {
+                            nw.Window.open(url, { title: "Install Status", resizable: true, width: 600, height: 450 });
                         }
                     });
                     return btn;
@@ -179,31 +207,18 @@
                     const btn = document.createElement("button");
                     btn.className = "primary-button";
                     btn.textContent = "Update";
-                    btn.addEventListener("click", async () => {
+                    btn.addEventListener("click", () => {
                         btn.disabled = true;
                         btn.textContent = opts.full ? "Updating…" : "Updating deps…";
-                        try {
-                            if (opts.full) {
-                                // Full module update
-                                await Module.updateModulePreservingMultiversions(folder);
-                                installedSet.add(folder);
-                            } else {
-                                // dep-only update
-                                await Module.updateDependencies(folder);
-                            }
 
-                            // Refresh local manifests and depUpdatesSet
-                            moduleManifests = Module.readLocalManifests();
-                            try {
-                                depUpdatesSet = await Module.checkDependencyUpdatesForFolders([...installedSet]);
-                            } catch {}
+                        const url = opts.full
+                            ? `status.html?action=update&folder=${encodeURIComponent(folder)}&full=1`
+                            : `status.html?action=update-deps&folder=${encodeURIComponent(folder)}`;
 
-                            btn.replaceWith(makeUninstallOrUpdateButton(folder));
-                            filterModules(moduleQuery);
-                        } catch (e) {
-                            console.error(e);
-                            btn.textContent = "Error";
-                            btn.disabled = false;
+                        if (typeof openSubwindow === "function") {
+                            openSubwindow(url, null, null, 600, 450);
+                        } else {
+                            nw.Window.open(url, { title: "Update Status", resizable: true, width: 600, height: 450 });
                         }
                     });
                     return btn;
