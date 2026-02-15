@@ -47,6 +47,7 @@
 
         <div class="footer">
             <button id="closeButton" class="secondary-button">Close</button>
+            <button id="updateAllButton" class="primary-button" style="display: none">Update All</button>
             <button id="refresh-btn" class="primary-button">Refresh Modules</button>
         </div>
 
@@ -68,6 +69,67 @@
 
                 const searchInput = document.getElementById("moduleSearch");
                 const installedOnlyCb = document.getElementById("installedOnly");
+                const updateAllBtn = document.getElementById("updateAllButton");
+
+                let updateAllQueue = [];
+
+                function computeUpdateAllQueue() {
+                    const queue = [];
+
+                    for (const folder of installedSet) {
+                        const remote = allModules.find((m) => m.folder === folder) || null;
+                        const remoteVer = remote?.version || "N/A";
+                        const localVer = moduleManifests[folder]?.version;
+                        const hasFull = remote ? Module.hasUpdate(localVer, remoteVer) : false;
+
+                        if (remote && hasFull) {
+                            queue.push({ folder, mode: "full" });
+                        } else if (depUpdatesSet.has(folder)) {
+                            queue.push({ folder, mode: "deps" });
+                        }
+                    }
+
+                    updateAllQueue = queue;
+                    if (updateAllBtn) {
+                        updateAllBtn.style.display = queue.length >= 2 ? "" : "none";
+                        updateAllBtn.disabled = false;
+                        updateAllBtn.textContent = "Update All";
+                    }
+                }
+
+                if (updateAllBtn) {
+                    updateAllBtn.addEventListener("click", () => {
+                        if (!updateAllQueue || updateAllQueue.length < 2) return;
+
+                        updateAllBtn.disabled = true;
+                        updateAllBtn.textContent = "Updating…";
+
+                        const payload = encodeURIComponent(JSON.stringify(updateAllQueue));
+                        const url = `status.html?action=update-all&queue=${payload}`;
+
+                        const onClosed = () => {
+                            // Button state will be re-computed after refresh, but this prevents it from getting stuck.
+                            try {
+                                updateAllBtn.disabled = false;
+                                updateAllBtn.textContent = "Update All";
+                            } catch {}
+                        };
+
+                        if (typeof openSubwindow === "function") {
+                            openSubwindow(url, null, onClosed, 700, 500);
+                        } else {
+                            nw.Window.open(
+                                url,
+                                { title: "Update Status", resizable: true, width: 700, height: 500 },
+                                (newWin) => {
+                                    try {
+                                        newWin.on("closed", onClosed);
+                                    } catch {}
+                                }
+                            );
+                        }
+                    });
+                }
 
                 document.getElementById("refresh-btn").addEventListener("click", async () => {
                     const btn = document.getElementById("refresh-btn");
@@ -166,8 +228,14 @@
 
                         allModules = manifests.sort((a, b) => a.name.localeCompare(b.name));
                         filterModules(moduleQuery);
+
+                        computeUpdateAllQueue();
                     } catch (err) {
                         container.innerHTML = `<p style="color:red;">Error loading modules: ${err.message}</p>`;
+                        try {
+                            updateAllQueue = [];
+                            if (updateAllBtn) updateAllBtn.style.display = "none";
+                        } catch {}
                     }
                 }
 

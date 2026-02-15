@@ -87,6 +87,7 @@
                 const action = params.get("action") || "install";
                 const folder = params.get("folder") || "";
                 const full = params.get("full") === "1";
+                const queueParam = params.get("queue") || "";
 
                 const el = (id) => document.getElementById(id);
 
@@ -321,7 +322,29 @@
                     let op = "Install";
                     if (action === "update") op = "Update";
                     if (action === "update-deps") op = "Update dependencies";
+                    if (action === "update-all") {
+                        titleEl.textContent = "Update All";
+                        return;
+                    }
                     titleEl.textContent = `${op}: ${folder || "(unknown)"}`;
+                }
+
+                function setBatchTitle(itemFolder, i, n, mode) {
+                    const modeLabel = mode === "deps" ? "deps" : "full";
+                    titleEl.textContent = `Update All (${i}/${n}): ${itemFolder || "(unknown)"}`;
+                    subtitleEl.textContent = `Updating ${modeLabel}…`;
+                }
+
+                function resetPerModuleUi() {
+                    stepCurrent = null;
+                    stepTotal = null;
+                    updateStepCounter();
+
+                    pendingDl = null;
+                    speedEma = 0;
+                    lastSpeedSampleTs = 0;
+                    lastProgressLogTs = 0;
+                    resetDownloadUI("—", null);
                 }
 
                 function closeWindow(force = false) {
@@ -347,7 +370,110 @@
                     setCloseButtonState();
 
                     try {
-                        if (!folder) throw new Error("Missing folder parameter");
+                        if (action !== "update-all" && !folder) throw new Error("Missing folder parameter");
+
+                        if (action === "update-all") {
+                            let queue = [];
+                            try {
+                                // queueParam is already URL-decoded by URLSearchParams
+                                queue = queueParam ? JSON.parse(queueParam) : [];
+                            } catch {
+                                queue = [];
+                            }
+                            if (!Array.isArray(queue) || queue.length === 0) {
+                                throw new Error("Missing or invalid update queue");
+                            }
+
+                            log(`Starting Update All (${queue.length} module${queue.length === 1 ? "" : "s"})…`);
+
+                            let currentFolder = null;
+                            let canceledDuringModule = false;
+                            for (let idx = 0; idx < queue.length; idx++) {
+                                if (cancelRequested || abortController.signal.aborted) break;
+
+                                const item = queue[idx] || {};
+                                const itemFolder = String(item.folder || "");
+                                const mode = item.mode === "deps" ? "deps" : "full";
+
+                                if (!itemFolder) continue;
+
+                                currentFolder = itemFolder;
+                                resetPerModuleUi();
+                                setBatchTitle(itemFolder, idx + 1, queue.length, mode);
+                                log("----------------------------------------");
+                                log(`Updating ${itemFolder} (${mode})…`);
+
+                                try {
+                                    if (mode === "deps") {
+                                        await Module.updateDependenciesTaskWithProgress(itemFolder, progress, {
+                                            signal: abortController.signal,
+                                        });
+                                    } else {
+                                        await Module.updateModulePreservingMultiversionsWithProgress(itemFolder, progress, {
+                                            signal: abortController.signal,
+                                        });
+                                    }
+                                } catch (e) {
+                                    // Cancellation: stop the batch and let the post-loop cancel handler do cleanup.
+                                    if (cancelRequested || isAbortError(e) || abortController.signal.aborted) {
+                                        canceledDuringModule = true;
+                                        break;
+                                    }
+                                    throw new Error(
+                                        `Update failed for "${itemFolder}": ${e && e.message ? e.message : String(e)}`
+                                    );
+                                }
+
+                                log(`Done: ${itemFolder}`);
+                                currentFolder = null;
+                            }
+
+                            if (cancelRequested || abortController.signal.aborted || canceledDuringModule) {
+                                overallEl.textContent = "Canceled";
+                                subtitleEl.textContent = "Canceled.";
+                                stepLabelEl.textContent = "Canceled.";
+                                log("Canceled by user.");
+
+                                // Only uninstall the *current* module being processed.
+                                if (currentFolder) {
+                                    subtitleEl.textContent = "Canceled (cleaning up current module)…";
+                                    stepLabelEl.textContent = "Canceled (cleaning up current module)…";
+                                    log(`Cleaning up by uninstalling current module: ${currentFolder}…`);
+                                    try {
+                                        Module.uninstallModule(currentFolder);
+                                        log("Cleanup complete (current module uninstalled).");
+                                    } catch (e) {
+                                        log(`Cleanup failed: ${e && e.message ? e.message : String(e)}`);
+                                    }
+                                }
+
+                                isRunning = false;
+                                setCloseButtonState();
+
+                                try {
+                                    if (window.opener && typeof window.opener.onModuleTaskFinished === "function") {
+                                        window.opener.onModuleTaskFinished();
+                                    }
+                                } catch {}
+
+                                closeWindow(true);
+                                return;
+                            }
+
+                            overallEl.textContent = "Done";
+                            isRunning = false;
+                            setCloseButtonState();
+                            subtitleEl.textContent = "Completed successfully.";
+                            stepLabelEl.textContent = "Completed successfully.";
+                            log("Completed successfully.");
+
+                            try {
+                                if (window.opener && typeof window.opener.onModuleTaskFinished === "function") {
+                                    window.opener.onModuleTaskFinished();
+                                }
+                            } catch {}
+                            return;
+                        }
 
                         if (action === "install") {
                             await Module.installModuleWithProgress(folder, Module.DEFAULT_REPO, progress, {
@@ -461,9 +587,11 @@
                     if (isRunning) {
                         if (cancelRequested) return;
 
-                        const ok = window.confirm(
-                            "Cancel this install/update? To avoid leaving broken files behind, canceling will uninstall the module."
-                        );
+                        const msg =
+                            action === "update-all"
+                                ? "Cancel this Update All? To avoid leaving broken files behind, canceling will uninstall only the module currently being updated."
+                                : "Cancel this install/update? To avoid leaving broken files behind, canceling will uninstall the module.";
+                        const ok = window.confirm(msg);
                         if (!ok) return;
 
                         cancelRequested = true;
