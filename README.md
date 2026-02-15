@@ -5,8 +5,7 @@ An in progress modular game launcher and compatability layer for macos. The goal
 
 > [!TIP]
 > [How to open an app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac) <-- You will need this for first setup<br>
-> Basic Instruction Video: https://youtu.be/-QaL9mTCGfY<br>
-> **If you get a popup asking for "Safe Storage" press deny, this is unused and will not affect Xenolauncher**
+> Basic Instruction Video: https://youtu.be/-QaL9mTCGfY
 
 ### Donations
 <details>
@@ -62,7 +61,6 @@ Some of these can still be used with wine<br>
 6. Better error correction/tracking
 7. Different/3rd party module repos
 8. Better module documentation/wiki
-9. Open status window for every install or update process 
 
 # Special Thanks
 A big thank you to the following people for their support of this project!<br>
