@@ -44,6 +44,8 @@
             <button id="closeButton" class="secondary-button">Close</button>
         </div>
 
+        <script src="window-utils.js"></script>
+
         <script>
             (function () {
                 const fs = require("fs");
@@ -317,7 +319,10 @@
                             await downloadAndPlace(link, !!unzip, destDir);
                         } catch (e) {
                             console.error(e);
-                            alert("Install failed: " + (e && e.message ? e.message : e));
+                            await AppDialog.alert(
+                                "Install failed: " + (e && e.message ? e.message : e),
+                                "Install Failed"
+                            );
                         } finally {
                             btn.textContent = oldText;
                             btn.disabled = false;
@@ -337,7 +342,10 @@
                             fs.rmSync(dir, { recursive: true, force: true });
                         } catch (e) {
                             console.error(e);
-                            alert("Uninstall failed: " + (e && e.message ? e.message : e));
+                            await AppDialog.alert(
+                                "Uninstall failed: " + (e && e.message ? e.message : e),
+                                "Uninstall Failed"
+                            );
                         } finally {
                             btn.textContent = oldText;
                             btn.disabled = false;

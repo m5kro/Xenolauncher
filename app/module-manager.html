@@ -296,8 +296,8 @@
                     const btn = document.createElement("button");
                     btn.className = "secondary-button";
                     btn.textContent = "Uninstall";
-                    btn.addEventListener("click", () => {
-                        if (!confirm("Are you sure you want to uninstall this module?")) return;
+                    btn.addEventListener("click", async () => {
+                        if (!(await AppDialog.confirm("Are you sure you want to uninstall this module?", "Uninstall Module"))) return;
                         btn.disabled = true;
                         btn.textContent = "Uninstalling…";
                         try {

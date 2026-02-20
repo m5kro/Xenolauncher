@@ -86,9 +86,10 @@
                     if (!/^\d+\.\d+\.\d+$/.test(latest)) return;
 
                     if (hasUpdate(currentVersion, latest)) {
-                        const wants = confirm(
+                        const wants = await AppDialog.confirm(
                             `A new Xenolauncher version (${latest}) is available (you have ${currentVersion}). ` +
-                                `Would you like to update now?`
+                                `Would you like to update now?`,
+                            "App Update"
                         );
                         if (wants) {
                             const nodeRequire =
@@ -110,7 +111,7 @@
                 });
             };
 
-            const handleDeleteButtonClick = (event) => {
+            const handleDeleteButtonClick = async (event) => {
                 const container = event.target.closest("[data-game-id]");
                 if (!container) {
                     console.warn("Delete: no parent with data-game-id found", event.target);
@@ -121,12 +122,24 @@
                 const settings = GlobalSettings.loadGlobalSettings();
 
                 const doDelete =
-                    !settings.deletionConfirmation || confirm("Are you sure you want to delete this game?");
+                    !settings.deletionConfirmation ||
+                    (await AppDialog.confirm("Are you sure you want to delete this game?", "Delete Game"));
 
                 if (!doDelete) return;
 
+                let deleteFiles = false;
+                if (settings.confirmGameFileDeletion) {
+                    deleteFiles = await AppDialog.confirm("Would you also like to delete the game files?", "Delete Files");
+                }
+
+                const game = allGames?.[gameId] || Games.loadGames()?.[gameId] || null;
+                if (game) {
+                    const ok = await Module.deleteWithEngine(game, { deleteFiles });
+                    if (!ok) return;
+                }
+
                 const updated = Games.deleteGame(gameId);
-                alert("Game deleted!");
+                await AppDialog.alert(deleteFiles ? "Game and files deleted." : "Game deleted.", "Game Deleted");
                 renderGamesGrid(updated); // re-render will re-bind delete buttons
             };
 
@@ -372,9 +385,10 @@
                     for (const f of depUpdateFolders) needing.add(f);
 
                     if (needing.size > 0) {
-                        const wants = confirm(
+                        const wants = await AppDialog.confirm(
                             `Updates are available for ${needing.size} module${needing.size > 1 ? "s" : ""}. ` +
-                                `Would you like to open the Module Manager to install them now?`
+                                `Would you like to open the Module Manager to install them now?`,
+                            "Module Updates"
                         );
                         if (wants) {
                             openSubwindow("module-manager.html?showInstalled=1", null, null, 800, 600);
@@ -393,8 +407,8 @@
 
                 const settings = GlobalSettings.loadGlobalSettings();
 
-                GlobalSettings.ensureFirstSetup(openSubwindow);
-                GlobalSettings.checkAndHandleUpdate(currentVersion, openSubwindow);
+                await GlobalSettings.ensureFirstSetup(openSubwindow);
+                await GlobalSettings.checkAndHandleUpdate(currentVersion, openSubwindow);
 
                 document
                     .getElementById("addGameButton")

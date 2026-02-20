@@ -2,6 +2,7 @@
 (function () {
     // Keep track of singleton subwindows so we don't open duplicates.
     const singletonWindows = new Map();
+    let activeDialog = null;
 
     function getSingletonKey(url) {
         if (!url) return null;
@@ -105,5 +106,108 @@
         });
     }
 
+    function closeActiveDialog() {
+        if (!activeDialog) return;
+        const { overlay, onKeyDown } = activeDialog;
+        try {
+            window.removeEventListener("keydown", onKeyDown);
+        } catch (_) {}
+        try {
+            overlay.remove();
+        } catch (_) {}
+        activeDialog = null;
+    }
+
+    function showDialog(message, opts = {}) {
+        return new Promise((resolve) => {
+            if (typeof document === "undefined" || !document.body) {
+                resolve(false);
+                return;
+            }
+
+            const mode = opts.mode === "confirm" ? "confirm" : "alert";
+            const title = opts.title || (mode === "confirm" ? "Confirm" : "Notice");
+            const confirmText = opts.confirmText || (mode === "confirm" ? "Yes" : "OK");
+            const cancelText = opts.cancelText || "No";
+
+            closeActiveDialog();
+
+            const overlay = document.createElement("div");
+            overlay.className = "app-dialog-overlay";
+
+            const dialog = document.createElement("div");
+            dialog.className = "app-dialog";
+            dialog.setAttribute("role", mode === "confirm" ? "alertdialog" : "dialog");
+            dialog.setAttribute("aria-modal", "true");
+
+            const heading = document.createElement("h3");
+            heading.className = "app-dialog-title";
+            heading.textContent = title;
+
+            const body = document.createElement("p");
+            body.className = "app-dialog-message";
+            body.textContent = String(message || "");
+
+            const actions = document.createElement("div");
+            actions.className = "app-dialog-actions";
+
+            const confirmBtn = document.createElement("button");
+            confirmBtn.className = "primary-button";
+            confirmBtn.textContent = confirmText;
+
+            const finish = (value) => {
+                closeActiveDialog();
+                resolve(value);
+            };
+
+            if (mode === "confirm") {
+                const cancelBtn = document.createElement("button");
+                cancelBtn.className = "secondary-button";
+                cancelBtn.textContent = cancelText;
+                cancelBtn.addEventListener("click", () => finish(false));
+                actions.appendChild(cancelBtn);
+            }
+
+            confirmBtn.addEventListener("click", () => finish(true));
+            actions.appendChild(confirmBtn);
+
+            const onKeyDown = (e) => {
+                if (e.key === "Escape") {
+                    finish(mode === "confirm" ? false : true);
+                    return;
+                }
+                if (e.key === "Enter") {
+                    finish(true);
+                }
+            };
+
+            if (mode === "confirm") {
+                overlay.addEventListener("click", (e) => {
+                    if (e.target === overlay) finish(false);
+                });
+            }
+
+            dialog.appendChild(heading);
+            dialog.appendChild(body);
+            dialog.appendChild(actions);
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            activeDialog = { overlay, onKeyDown };
+            window.addEventListener("keydown", onKeyDown);
+            confirmBtn.focus();
+        });
+    }
+
+    const AppDialog = {
+        alert(message, title = "Notice") {
+            return showDialog(message, { mode: "alert", title, confirmText: "OK" });
+        },
+        confirm(message, title = "Confirm") {
+            return showDialog(message, { mode: "confirm", title, confirmText: "Yes", cancelText: "No" });
+        },
+    };
+
     window.openSubwindow = openSubwindow;
+    window.AppDialog = AppDialog;
 })();

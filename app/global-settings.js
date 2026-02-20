@@ -47,6 +47,7 @@
             darkTheme: prefersDark(),
             listView: false,
             deletionConfirmation: true,
+            confirmGameFileDeletion: true,
             checkUpdatesOnStartup: true,
             checkModuleUpdatesOnStartup: true,
             nonInstalledAutodetect: true,
@@ -68,10 +69,15 @@
     }
 
     // First-run helper
-    function ensureFirstSetup(openSubwindow) {
+    async function ensureFirstSetup(openSubwindow) {
         const file = getSettingsPath();
         if (!fs.existsSync(file)) {
-            alert("Welcome to Xenolauncher! Please configure your global settings and install some game engines!");
+            if (window.AppDialog && typeof window.AppDialog.alert === "function") {
+                await window.AppDialog.alert(
+                    "Welcome to Xenolauncher! Please configure your global settings and install some game engines!",
+                    "Welcome"
+                );
+            }
             if (typeof openSubwindow === "function") openSubwindow("global-settings.html");
             return true;
         }
@@ -79,15 +85,18 @@
     }
 
     // Update notice + persist version
-    function checkAndHandleUpdate(currentVersion, openSubwindow) {
+    async function checkAndHandleUpdate(currentVersion, openSubwindow) {
         const file = getSettingsPath();
         if (!fs.existsSync(file)) return; // handled by first setup
         const settings = loadGlobalSettings();
 
         if (settings.currentVersion !== currentVersion) {
-            alert(
-                `Xenolauncher has been updated to version ${currentVersion}! Check out the new features and improvements!`
-            );
+            if (window.AppDialog && typeof window.AppDialog.alert === "function") {
+                await window.AppDialog.alert(
+                    `Xenolauncher has been updated to version ${currentVersion}! Check out the new features and improvements!`,
+                    "App Updated"
+                );
+            }
             if (typeof openSubwindow === "function") openSubwindow("global-settings.html");
         }
         const merged = Object.assign({}, settings, { currentVersion });
