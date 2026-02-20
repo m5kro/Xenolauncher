@@ -1299,9 +1299,34 @@
         return gameFolder;
     }
 
+    function getModuleUi() {
+        const dialog = window.AppDialog;
+        return {
+            alert(message, title = "Notice") {
+                if (dialog && typeof dialog.alert === "function") {
+                    return dialog.alert(message, title);
+                }
+                try {
+                    window.alert(String(message || ""));
+                } catch {}
+                return Promise.resolve(true);
+            },
+            confirm(message, title = "Confirm") {
+                if (dialog && typeof dialog.confirm === "function") {
+                    return dialog.confirm(message, title);
+                }
+                try {
+                    return Promise.resolve(window.confirm(String(message || "")));
+                } catch {}
+                return Promise.resolve(false);
+            },
+        };
+    }
+
     async function launchWithEngine(game, { openSubwindow } = {}) {
         const modulePath = path.join(getModulesDir(), game.gameEngine);
         const dialog = window.AppDialog;
+        const ui = getModuleUi();
 
         const proceed = async () => {
             const manifestPath = path.join(modulePath, "manifest.json");
@@ -1340,7 +1365,7 @@
 
             try {
                 const { launch } = require(launcherPath);
-                launch(game.gamePath, gameFolder, game.gameArgs, game.gameTitle || "");
+                launch(game.gamePath, gameFolder, game.gameArgs, game.gameTitle || "", ui);
             } catch (e) {
                 console.error(`Error launching with ${game.gameEngine}:`, e);
                 if (dialog && typeof dialog.alert === "function") {
@@ -1384,6 +1409,7 @@
         const gameFolder = resolveGameFolder(gamePath);
         const gameName = game.gameTitle || "";
         const modulePath = path.join(getModulesDir(), game.gameEngine);
+        const ui = getModuleUi();
 
         if (fs.existsSync(modulePath) && fs.statSync(modulePath).isDirectory()) {
             const postDeletePath = path.join(modulePath, "postdelete.js");
@@ -1394,7 +1420,7 @@
                     if (typeof postDelete !== "function") {
                         throw new Error("postdelete.js must export postDelete");
                     }
-                    await Promise.resolve(postDelete(gameName, gameFolder, gamePath));
+                    await Promise.resolve(postDelete(gameName, gameFolder, gamePath, ui));
                 } catch (e) {
                     console.error(`Error deleting with ${game.gameEngine}:`, e);
                     if (window.AppDialog && typeof window.AppDialog.alert === "function") {
@@ -1487,7 +1513,7 @@
         try {
             const prov = await loadUpdatesProvider(folder);
             if (!prov) return {};
-            const out = await prov.checkUpdates();
+            const out = await prov.checkUpdates(getModuleUi());
             return out && typeof out === "object" ? out : {};
         } catch (e) {
             console.warn("getDependencyUpdates error:", e);
@@ -1589,11 +1615,13 @@
         try {
             const fn = await loadPostUpdateProvider(folder);
             if (!fn) return;
+            const ui = getModuleUi();
 
             await Promise.resolve(
                 fn({
                     updatedDeps: Array.isArray(updatedDeps) ? updatedDeps : [],
-                })
+                    ui,
+                }, ui)
             );
         } catch (e) {
             console.warn(`postupdate.js failed for "${folder}":`, e);
