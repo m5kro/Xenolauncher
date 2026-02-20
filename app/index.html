@@ -110,7 +110,7 @@
                 });
             };
 
-            const handleDeleteButtonClick = (event) => {
+            const handleDeleteButtonClick = async (event) => {
                 const container = event.target.closest("[data-game-id]");
                 if (!container) {
                     console.warn("Delete: no parent with data-game-id found", event.target);
@@ -125,8 +125,19 @@
 
                 if (!doDelete) return;
 
+                let deleteFiles = false;
+                if (settings.confirmGameFileDeletion) {
+                    deleteFiles = confirm("Would you also like to delete the game files?");
+                }
+
+                const game = allGames?.[gameId] || Games.loadGames()?.[gameId] || null;
+                if (game) {
+                    const ok = await Module.deleteWithEngine(game, { deleteFiles });
+                    if (!ok) return;
+                }
+
                 const updated = Games.deleteGame(gameId);
-                alert("Game deleted!");
+                alert(deleteFiles ? "Game and files deleted!" : "Game deleted!");
                 renderGamesGrid(updated); // re-render will re-bind delete buttons
             };
 

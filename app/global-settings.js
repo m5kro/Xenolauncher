@@ -47,6 +47,7 @@
             darkTheme: prefersDark(),
             listView: false,
             deletionConfirmation: true,
+            confirmGameFileDeletion: true,
             checkUpdatesOnStartup: true,
             checkModuleUpdatesOnStartup: true,
             nonInstalledAutodetect: true,

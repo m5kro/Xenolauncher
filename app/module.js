@@ -1291,6 +1291,14 @@
         return bestScore > 0 ? bestKey : null;
     }
 
+    function resolveGameFolder(gamePath) {
+        let gameFolder = gamePath;
+        try {
+            if (fs.statSync(gamePath).isFile()) gameFolder = path.dirname(gamePath);
+        } catch {}
+        return gameFolder;
+    }
+
     async function launchWithEngine(game, { openSubwindow } = {}) {
         const modulePath = path.join(getModulesDir(), game.gameEngine);
 
@@ -1305,10 +1313,7 @@
                 return alert(`Invalid manifest for engine “${game.gameEngine}.”`);
             }
 
-            let gameFolder = game.gamePath;
-            try {
-                if (fs.statSync(game.gamePath).isFile()) gameFolder = path.dirname(game.gamePath);
-            } catch {}
+            const gameFolder = resolveGameFolder(game.gamePath);
 
             // permissions
             // Tim we are not cooking here
@@ -1321,7 +1326,7 @@
 
             try {
                 const { launch } = require(launcherPath);
-                launch(game.gamePath, gameFolder, game.gameArgs);
+                launch(game.gamePath, gameFolder, game.gameArgs, game.gameTitle || "");
             } catch (e) {
                 console.error(`Error launching with ${game.gameEngine}:`, e);
                 alert(`Failed to launch: ${e.message}`);
@@ -1345,6 +1350,45 @@
             return;
         }
         proceed();
+    }
+
+    async function deleteWithEngine(game, { deleteFiles = false } = {}) {
+        if (!game || !game.gamePath || !game.gameEngine) return true;
+
+        const gamePath = game.gamePath;
+        const gameFolder = resolveGameFolder(gamePath);
+        const gameName = game.gameTitle || "";
+        const modulePath = path.join(getModulesDir(), game.gameEngine);
+
+        if (fs.existsSync(modulePath) && fs.statSync(modulePath).isDirectory()) {
+            const postDeletePath = path.join(modulePath, "postdelete.js");
+            if (fs.existsSync(postDeletePath)) {
+                try {
+                    delete require.cache[postDeletePath];
+                    const { postDelete } = require(postDeletePath);
+                    if (typeof postDelete !== "function") {
+                        throw new Error("postdelete.js must export postDelete");
+                    }
+                    await Promise.resolve(postDelete(gameName, gameFolder, gamePath));
+                } catch (e) {
+                    console.error(`Error deleting with ${game.gameEngine}:`, e);
+                    alert(`Failed to run module post-delete hook: ${e.message}`);
+                    return false;
+                }
+            }
+        }
+
+        if (deleteFiles) {
+            try {
+                if (fs.existsSync(gameFolder)) fs.rmSync(gameFolder, { recursive: true, force: true });
+            } catch (e) {
+                console.error("Failed to delete game files:", e);
+                alert(`Failed to delete game files: ${e.message}`);
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // ===== Dependency update support =========================================
@@ -1692,6 +1736,7 @@
 
         // launching
         launchWithEngine,
+        deleteWithEngine,
 
         // dependency updates
         getDependencyUpdates,

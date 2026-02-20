@@ -40,6 +40,11 @@
         </div>
 
         <div class="setting-toggle">
+            <label for="confirmGameFileDeletionToggle">Confirm game file deletion (Does not delete files if disabled)</label>
+            <input type="checkbox" id="confirmGameFileDeletionToggle" />
+        </div>
+
+        <div class="setting-toggle">
             <label for="updatesStartupToggle">Check for Xenolauncher updates on startup</label>
             <input type="checkbox" id="updatesStartupToggle" />
         </div>
@@ -70,6 +75,7 @@
             document.getElementById("darkThemeToggle").checked = s.darkTheme;
             document.getElementById("listViewToggle").checked = s.listView;
             document.getElementById("deletionConfirmationToggle").checked = s.deletionConfirmation;
+            document.getElementById("confirmGameFileDeletionToggle").checked = s.confirmGameFileDeletion;
             document.getElementById("updatesStartupToggle").checked = s.checkUpdatesOnStartup;
             document.getElementById("moduleUpdatesStartupToggle").checked = s.checkModuleUpdatesOnStartup;
             document.getElementById("nonInstalledAutodetectToggle").checked = s.nonInstalledAutodetect;
@@ -79,6 +85,7 @@
                     darkTheme: document.getElementById("darkThemeToggle").checked,
                     listView: document.getElementById("listViewToggle").checked,
                     deletionConfirmation: document.getElementById("deletionConfirmationToggle").checked,
+                    confirmGameFileDeletion: document.getElementById("confirmGameFileDeletionToggle").checked,
                     checkUpdatesOnStartup: document.getElementById("updatesStartupToggle").checked,
                     checkModuleUpdatesOnStartup: document.getElementById("moduleUpdatesStartupToggle").checked,
                     nonInstalledAutodetect: document.getElementById("nonInstalledAutodetectToggle").checked,
