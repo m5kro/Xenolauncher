@@ -79,6 +79,7 @@
         </div>
 
         <!-- Shared scripts -->
+        <script src="window-utils.js"></script>
         <script src="module.js"></script>
 
         <script>
@@ -582,7 +583,7 @@
                 }, 500);
 
                 // Close/Cancel button
-                el("closeBtn").addEventListener("click", () => {
+                el("closeBtn").addEventListener("click", async () => {
                     // While running, this is a Cancel button with confirmation.
                     if (isRunning) {
                         if (cancelRequested) return;
@@ -591,7 +592,7 @@
                             action === "update-all"
                                 ? "Cancel this Update All? To avoid leaving broken files behind, canceling will uninstall only the module currently being updated."
                                 : "Cancel this install/update? To avoid leaving broken files behind, canceling will uninstall the module.";
-                        const ok = window.confirm(msg);
+                        const ok = await AppDialog.confirm(msg, "Cancel Operation");
                         if (!ok) return;
 
                         cancelRequested = true;

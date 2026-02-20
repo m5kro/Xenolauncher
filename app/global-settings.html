@@ -80,7 +80,7 @@
             document.getElementById("moduleUpdatesStartupToggle").checked = s.checkModuleUpdatesOnStartup;
             document.getElementById("nonInstalledAutodetectToggle").checked = s.nonInstalledAutodetect;
 
-            document.getElementById("saveSettings").addEventListener("click", () => {
+            document.getElementById("saveSettings").addEventListener("click", async () => {
                 const updated = {
                     darkTheme: document.getElementById("darkThemeToggle").checked,
                     listView: document.getElementById("listViewToggle").checked,
@@ -92,7 +92,7 @@
                     currentVersion,
                 };
                 GlobalSettings.saveGlobalSettings(updated);
-                alert("Settings saved!");
+                await AppDialog.alert("Settings saved.", "Saved");
                 GlobalSettings.applyTheme(updated.darkTheme);
                 window.setMainWindow(updated);
                 nw.Window.get().close();

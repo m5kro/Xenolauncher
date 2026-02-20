@@ -1301,16 +1301,25 @@
 
     async function launchWithEngine(game, { openSubwindow } = {}) {
         const modulePath = path.join(getModulesDir(), game.gameEngine);
+        const dialog = window.AppDialog;
 
-        const proceed = () => {
+        const proceed = async () => {
             const manifestPath = path.join(modulePath, "manifest.json");
-            if (!fs.existsSync(manifestPath)) return alert(`manifest.json not found for engine “${game.gameEngine}.”`);
+            if (!fs.existsSync(manifestPath)) {
+                if (dialog && typeof dialog.alert === "function") {
+                    await dialog.alert(`manifest.json not found for engine "${game.gameEngine}".`, "Launch Error");
+                }
+                return;
+            }
 
             try {
                 JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
             } catch (e) {
                 console.warn(`Invalid JSON in ${manifestPath}`, e);
-                return alert(`Invalid manifest for engine “${game.gameEngine}.”`);
+                if (dialog && typeof dialog.alert === "function") {
+                    await dialog.alert(`Invalid manifest for engine "${game.gameEngine}".`, "Launch Error");
+                }
+                return;
             }
 
             const gameFolder = resolveGameFolder(game.gamePath);
@@ -1322,34 +1331,50 @@
             exec(`chmod -R 700 "${gameFolder}"`, () => {});
 
             const launcherPath = path.join(modulePath, "launcher.js");
-            if (!fs.existsSync(launcherPath)) return alert(`launcher.js not found for engine “${game.gameEngine}.”`);
+            if (!fs.existsSync(launcherPath)) {
+                if (dialog && typeof dialog.alert === "function") {
+                    await dialog.alert(`launcher.js not found for engine "${game.gameEngine}".`, "Launch Error");
+                }
+                return;
+            }
 
             try {
                 const { launch } = require(launcherPath);
                 launch(game.gamePath, gameFolder, game.gameArgs, game.gameTitle || "");
             } catch (e) {
                 console.error(`Error launching with ${game.gameEngine}:`, e);
-                alert(`Failed to launch: ${e.message}`);
+                if (dialog && typeof dialog.alert === "function") {
+                    await dialog.alert(`Failed to launch: ${e.message}`, "Launch Error");
+                }
             }
         };
 
         if (!fs.existsSync(modulePath) || !fs.statSync(modulePath).isDirectory()) {
-            const wantsInstall = confirm(
-                `Module not found for engine “${game.gameEngine}.”\nWould you like to install it now?`
-            );
+            const wantsInstall =
+                dialog && typeof dialog.confirm === "function"
+                    ? await dialog.confirm(
+                          `Module not found for engine "${game.gameEngine}".\nWould you like to install it now?`,
+                          "Module Missing"
+                      )
+                    : false;
             if (!wantsInstall) return;
 
             const searchParam = encodeURIComponent(game.gameEngine || "");
             if (typeof openSubwindow === "function") {
                 openSubwindow(`module-manager.html?search=${searchParam}`, null, () => {
-                    if (fs.existsSync(modulePath) && fs.statSync(modulePath).isDirectory()) proceed();
+                    if (fs.existsSync(modulePath) && fs.statSync(modulePath).isDirectory()) void proceed();
                 });
             } else {
-                alert("Please open Module Manager and install the required module, then try again.");
+                if (dialog && typeof dialog.alert === "function") {
+                    await dialog.alert(
+                        "Please open Module Manager and install the required module, then try again.",
+                        "Module Missing"
+                    );
+                }
             }
             return;
         }
-        proceed();
+        await proceed();
     }
 
     async function deleteWithEngine(game, { deleteFiles = false } = {}) {
@@ -1372,7 +1397,9 @@
                     await Promise.resolve(postDelete(gameName, gameFolder, gamePath));
                 } catch (e) {
                     console.error(`Error deleting with ${game.gameEngine}:`, e);
-                    alert(`Failed to run module post-delete hook: ${e.message}`);
+                    if (window.AppDialog && typeof window.AppDialog.alert === "function") {
+                        await window.AppDialog.alert(`Failed to run module post-delete hook: ${e.message}`, "Delete Error");
+                    }
                     return false;
                 }
             }
@@ -1383,7 +1410,9 @@
                 if (fs.existsSync(gameFolder)) fs.rmSync(gameFolder, { recursive: true, force: true });
             } catch (e) {
                 console.error("Failed to delete game files:", e);
-                alert(`Failed to delete game files: ${e.message}`);
+                if (window.AppDialog && typeof window.AppDialog.alert === "function") {
+                    await window.AppDialog.alert(`Failed to delete game files: ${e.message}`, "Delete Error");
+                }
                 return false;
             }
         }

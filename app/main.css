@@ -653,3 +653,41 @@ tbody tr:hover {
     font-size: 12px;
     opacity: 0.85;
 }
+
+/* --- App Dialog --- */
+.app-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.app-dialog {
+    width: min(420px, 92vw);
+    border-radius: 12px;
+    padding: 18px;
+    background: var(--table-bg-color, #fff);
+    border: 1px solid var(--input-border-color, #ccc);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+}
+
+.app-dialog-title {
+    margin: 0 0 10px 0;
+    text-align: left;
+    color: var(--header-color, #222);
+}
+
+.app-dialog-message {
+    margin: 0 0 16px 0;
+    white-space: pre-wrap;
+    color: var(--text-color, #333);
+}
+
+.app-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}

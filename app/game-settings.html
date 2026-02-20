@@ -413,14 +413,14 @@
                     const exe = (document.getElementById("exePath")?.value || "").trim();
                     const sel = document.getElementById("gameEngine");
                     if (!window.__editingMode && exe && sel && !sel.value) {
-                        tryRemoteAutodetect(exe);
+                        await tryRemoteAutodetect(exe);
                     }
                 } catch (e) {
                     console.log("autodetect sync failed or timed out", e && e.message ? e.message : e);
                 }
             }
 
-            function tryRemoteAutodetect(exe) {
+            async function tryRemoteAutodetect(exe) {
                 if (!exe) return null;
                 if (!remoteAutodetectMap || !Object.keys(remoteAutodetectMap).length) return null;
                 const remoteKey = Module.detectEngineFromAutodetectMap(exe, remoteAutodetectMap);
@@ -430,8 +430,9 @@
                     buildOptionsUI();
 
                     window.__pendingModuleInstallKey = remoteKey;
-                    const shouldOpen = confirm(
-                        `Module "${remoteKey}" was autodetected but is not installed.\n\nOpen Module Manager to install it now?`
+                    const shouldOpen = await AppDialog.confirm(
+                        `Module "${remoteKey}" was autodetected but is not installed.\n\nOpen Module Manager to install it now?`,
+                        "Engine Not Installed"
                     );
                     if (shouldOpen) {
                         const searchParam = encodeURIComponent(`${remoteKey}`);
@@ -463,7 +464,7 @@
                         buildOptionsUI();
                     }
                 } else if (allowRemoteAutodetect) {
-                    tryRemoteAutodetect(exe);
+                    void tryRemoteAutodetect(exe);
                 }
             }
 
@@ -519,12 +520,15 @@
             }
 
             // ---------- Save handler ----------
-            document.getElementById("saveGame").addEventListener("click", () => {
+            document.getElementById("saveGame").addEventListener("click", async () => {
                 const title = document.getElementById("gameTitle").value.trim();
                 const exe = document.getElementById("exePath").value.trim();
                 const icon = document.getElementById("iconPath").value.trim();
                 const engine = document.getElementById("gameEngine").value;
-                if (!title || !exe || !engine) return alert("Please fill in all fields.");
+                if (!title || !exe || !engine) {
+                    await AppDialog.alert("Please fill in all required fields.", "Missing Information");
+                    return;
+                }
 
                 const defs = moduleManifests[engine]?.gameArgs || {};
                 const settingsObj = {};
@@ -565,10 +569,10 @@
                     gamesNow[gameId] = newData;
                     try {
                         Games.saveGames(gamesNow);
-                        alert("Game settings saved!");
+                        await AppDialog.alert("Game settings saved.", "Saved");
                     } catch (e) {
                         console.error("Error saving game:", e);
-                        alert("Failed to save game: " + e.message);
+                        await AppDialog.alert("Failed to save game: " + e.message, "Save Failed");
                     }
                 } else {
                     const nextID =
@@ -578,10 +582,10 @@
                     gamesNow[nextID] = newData;
                     try {
                         Games.saveGames(gamesNow);
-                        alert("Game added!");
+                        await AppDialog.alert("Game added.", "Saved");
                     } catch (e) {
                         console.error("Error saving game:", e);
-                        alert("Failed to save game: " + e.message);
+                        await AppDialog.alert("Failed to save game: " + e.message, "Save Failed");
                     }
                 }
                 nw.Window.get().close();
