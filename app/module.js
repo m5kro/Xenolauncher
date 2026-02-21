@@ -64,6 +64,19 @@
         return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
     }
 
+    function clearRequireCacheForDir(dirPath) {
+        if (!dirPath) return;
+        const root = path.resolve(dirPath);
+        const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+
+        for (const cacheKey of Object.keys(require.cache)) {
+            const resolved = path.resolve(cacheKey);
+            if (resolved === root || resolved.startsWith(rootWithSep)) {
+                delete require.cache[cacheKey];
+            }
+        }
+    }
+
     // ===== Cache helpers =======================================================
     const CACHE_SCHEMA = 1;
     const REMOTE_MANIFESTS_CACHE_FILE = "remote-manifests-cache.json";
@@ -1364,6 +1377,8 @@
             }
 
             try {
+                // Ensure launcher and any module-local dependencies are reloaded after updates.
+                clearRequireCacheForDir(modulePath);
                 const { launch } = require(launcherPath);
                 launch(game.gamePath, gameFolder, game.gameArgs, game.gameTitle || "", ui);
             } catch (e) {
