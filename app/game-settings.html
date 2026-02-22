@@ -45,6 +45,14 @@
         </div>
 
         <div class="form-item">
+            <label for="gameTags">Tags (optional, comma separated):</label>
+            <div class="tag-input-wrap">
+                <input type="text" id="gameTags" placeholder="e.g. rpg, co-op, retro" autocomplete="off" />
+                <div id="tagSuggestionsMenu" class="tag-suggestions-menu"></div>
+            </div>
+        </div>
+
+        <div class="form-item">
             <label for="gameEngine">Game Engine:</label>
             <select id="gameEngine">
                 <option value="">Select a game engine</option>
@@ -78,6 +86,127 @@
 
             // Local manifests (installed modules)
             let moduleManifests = Module.readLocalManifests();
+
+            // Tag system with autocomplete based on existing tags from other games
+            function normalizeTags(rawTags) {
+                const source = Array.isArray(rawTags) ? rawTags : typeof rawTags === "string" ? rawTags.split(",") : [];
+                const seen = new Set();
+                const out = [];
+                source.forEach((tag) => {
+                    const clean = String(tag || "").trim().toLowerCase();
+                    if (!clean || seen.has(clean)) return;
+                    seen.add(clean);
+                    out.push(clean);
+                });
+                return out;
+            }
+
+            function parseTagsInput(text) {
+                const raw = String(text || "")
+                    .split(",")
+                    .map((t) => t.trim());
+                return normalizeTags(raw);
+            }
+
+            function collectAllTags(excludeId = null) {
+                const games = (Games.loadGames && Games.loadGames()) || {};
+                const all = new Set();
+                Object.entries(games).forEach(([id, game]) => {
+                    if (excludeId && String(id) === String(excludeId)) return;
+                    normalizeTags(game.tags).forEach((tag) => all.add(tag));
+                });
+                return Array.from(all).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+            }
+
+            function setupTagAutocomplete(excludeId = null) {
+                const input = document.getElementById("gameTags");
+                const menu = document.getElementById("tagSuggestionsMenu");
+                const knownTags = collectAllTags(excludeId);
+                let lastSuggestions = [];
+
+                const closeMenu = () => {
+                    menu.classList.remove("show");
+                };
+
+                const openMenu = () => {
+                    if (!lastSuggestions.length) return;
+                    menu.classList.add("show");
+                };
+
+                const isInputFocused = () => document.activeElement === input;
+
+                const updateSuggestions = () => {
+                    const value = String(input.value || "");
+                    const parts = value.split(",");
+                    const lastRaw = parts[parts.length - 1] || "";
+                    const last = lastRaw.trim().toLowerCase();
+                    const prefix = parts
+                        .slice(0, -1)
+                        .map((part) => part.trim().toLowerCase())
+                        .filter(Boolean);
+
+                    const selectedNow = new Set(parseTagsInput(value));
+                    lastSuggestions = knownTags
+                        .filter((tag) => !selectedNow.has(tag) && (!last || tag.startsWith(last)))
+                        .slice(0, 12);
+
+                    menu.innerHTML = "";
+                    if (!lastSuggestions.length) {
+                        closeMenu();
+                        return;
+                    }
+
+                    lastSuggestions.forEach((tag) => {
+                        const item = document.createElement("button");
+                        item.type = "button";
+                        item.className = "tag-suggestion-item";
+                        item.textContent = tag;
+                        item.addEventListener("mousedown", (e) => {
+                            e.preventDefault();
+                        });
+                        item.addEventListener("click", () => {
+                            input.value = prefix.length ? `${prefix.join(", ")}, ${tag}` : tag;
+                            updateSuggestions();
+                            input.focus();
+                        });
+                        menu.appendChild(item);
+                    });
+
+                    if (isInputFocused()) openMenu();
+                };
+
+                input.addEventListener("focus", () => {
+                    updateSuggestions();
+                    openMenu();
+                });
+                input.addEventListener("input", () => {
+                    updateSuggestions();
+                    openMenu();
+                });
+                input.addEventListener("keydown", (e) => {
+                    if (e.key !== "Enter") return;
+                    if (!menu.classList.contains("show") || !lastSuggestions.length) return;
+                    e.preventDefault();
+                    const value = String(input.value || "");
+                    const parts = value.split(",");
+                    const prefix = parts
+                        .slice(0, -1)
+                        .map((part) => part.trim().toLowerCase())
+                        .filter(Boolean);
+                    input.value = prefix.length ? `${prefix.join(", ")}, ${lastSuggestions[0]}` : lastSuggestions[0];
+                    updateSuggestions();
+                });
+                input.addEventListener("blur", () => {
+                    setTimeout(() => closeMenu(), 120);
+                });
+
+                document.addEventListener("click", (e) => {
+                    if (!menu.contains(e.target) && e.target !== input) closeMenu();
+                });
+
+                updateSuggestions();
+                closeMenu();
+            }
 
             function populateEngineDropdown() {
                 const sel = document.getElementById("gameEngine");
@@ -503,6 +632,7 @@
                 document.getElementById("gameTitle").value = gameData.gameTitle || "";
                 document.getElementById("exePath").value = gameData.gamePath || "";
                 document.getElementById("iconPath").value = gameData.iconPath || "";
+                document.getElementById("gameTags").value = normalizeTags(gameData.tags).join(", ");
                 document.getElementById("gameEngine").value = gameData.gameEngine || "";
                 buildOptionsUI();
                 const defs = moduleManifests[gameData.gameEngine]?.gameArgs || {};
@@ -519,11 +649,14 @@
                 exeInput.addEventListener("change", () => autodetectEngine());
             }
 
+            setupTagAutocomplete(editing ? gameId : null);
+
             // ---------- Save handler ----------
             document.getElementById("saveGame").addEventListener("click", async () => {
                 const title = document.getElementById("gameTitle").value.trim();
                 const exe = document.getElementById("exePath").value.trim();
                 const icon = document.getElementById("iconPath").value.trim();
+                const tags = parseTagsInput(document.getElementById("gameTags").value);
                 const engine = document.getElementById("gameEngine").value;
                 if (!title || !exe || !engine) {
                     await AppDialog.alert("Please fill in all required fields.", "Missing Information");
@@ -560,6 +693,7 @@
                     gameTitle: title,
                     gamePath: exe,
                     iconPath: icon,
+                    tags,
                     gameEngine: engine,
                     gameArgs: settingsObj,
                 };

@@ -24,15 +24,24 @@
     <body>
         <main class="content">
             <div class="header">
-                <div class="search-wrap">
-                    <input
-                        id="searchInput"
-                        class="search-input"
-                        type="text"
-                        placeholder="Search games…"
-                        aria-label="Search games"
-                        autocomplete="off"
-                    />
+                <div class="search-controls">
+                    <div class="search-wrap">
+                        <input
+                            id="searchInput"
+                            class="search-input"
+                            type="text"
+                            placeholder="Search games…"
+                            aria-label="Search games"
+                            autocomplete="off"
+                        />
+                    </div>
+                    <div class="tag-filter-wrap">
+                        <button id="tagFilterButton" class="secondary-button tag-filter-button" type="button">Tags</button>
+                        <div id="tagFilterMenu" class="tag-filter-menu">
+                            <div id="tagFilterList" class="tag-filter-list"></div>
+                        </div>
+                    </div>
+                    <button id="searchButton" class="primary-button" type="button">Search</button>
                 </div>
                 <h1>No Games Found!</h1>
             </div>
@@ -54,6 +63,7 @@
         <script>
             let allGames = {};
             let currentQuery = "";
+            let selectedTags = new Set();
             const currentVersion = nw.App.manifest.version;
 
             // Compare "x.y.z" version strings. Returns true if remote > local.
@@ -140,22 +150,110 @@
 
                 const updated = Games.deleteGame(gameId);
                 await AppDialog.alert(deleteFiles ? "Game and files deleted." : "Game deleted.", "Game Deleted");
-                renderGamesGrid(updated); // re-render will re-bind delete buttons
+                allGames = updated || {};
+                refreshTagFilterUI();
+                filterGames(currentQuery);
             };
 
             document.addEventListener("DOMContentLoaded", () => bindDeleteButtons());
 
-            const filterGames = (query) => {
-                currentQuery = (query || "").trim().toLowerCase();
-                if (!currentQuery) {
-                    renderGamesGrid(allGames);
+            const normalizeTags = (rawTags) => {
+                const source = Array.isArray(rawTags) ? rawTags : typeof rawTags === "string" ? rawTags.split(",") : [];
+                const seen = new Set();
+                const normalized = [];
+                source.forEach((tag) => {
+                    const clean = String(tag || "").trim().toLowerCase();
+                    if (!clean || seen.has(clean)) return;
+                    seen.add(clean);
+                    normalized.push(clean);
+                });
+                return normalized;
+            };
+
+            const getAllTags = (games) => {
+                const tags = new Set();
+                Object.values(games || {}).forEach((game) => {
+                    normalizeTags(game.tags).forEach((tag) => tags.add(tag));
+                });
+                return Array.from(tags).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+            };
+
+            const refreshTagFilterUI = () => {
+                const listEl = document.getElementById("tagFilterList");
+                const tagButton = document.getElementById("tagFilterButton");
+                if (!listEl) return;
+
+                const allTags = getAllTags(allGames);
+                const available = new Set(allTags);
+                selectedTags = new Set([...selectedTags].filter((tag) => available.has(tag)));
+
+                listEl.innerHTML = "";
+                if (!allTags.length) {
+                    const empty = document.createElement("div");
+                    empty.className = "tag-filter-empty";
+                    empty.textContent = "No tags available";
+                    listEl.appendChild(empty);
+                    if (tagButton) tagButton.textContent = "Tags";
                     return;
                 }
-                const filtered = {};
+
+                allTags.forEach((tag) => {
+                    const row = document.createElement("label");
+                    row.className = "tag-filter-option";
+
+                    const input = document.createElement("input");
+                    input.type = "checkbox";
+                    input.value = tag;
+                    input.checked = selectedTags.has(tag);
+                    input.addEventListener("change", () => {
+                        if (input.checked) selectedTags.add(tag);
+                        else selectedTags.delete(tag);
+                        if (tagButton) {
+                            tagButton.textContent = selectedTags.size ? `Tags (${selectedTags.size})` : "Tags";
+                        }
+                        filterGames(currentQuery);
+                    });
+
+                    const text = document.createElement("span");
+                    text.textContent = tag;
+
+                    row.appendChild(input);
+                    row.appendChild(text);
+                    listEl.appendChild(row);
+                });
+
+                if (tagButton) {
+                    tagButton.textContent = selectedTags.size ? `Tags (${selectedTags.size})` : "Tags";
+                }
+            };
+
+            const filterGames = (query) => {
+                currentQuery = (query || "").trim().toLowerCase();
+                const selectedTagList = [...selectedTags];
+                const filteredPairs = [];
+
                 for (const [id, game] of Object.entries(allGames)) {
                     const title = (game.gameTitle || "").toLowerCase();
-                    if (title.includes(currentQuery)) filtered[id] = game;
+                    if (currentQuery && !title.includes(currentQuery)) continue;
+
+                    const tags = normalizeTags(game.tags);
+                    const hasAllSelectedTags = selectedTagList.every((tag) => tags.includes(tag));
+
+                    if (selectedTagList.length && !hasAllSelectedTags) continue;
+                    filteredPairs.push({ id, game });
                 }
+
+                filteredPairs.sort((a, b) => {
+                    return (a.game.gameTitle || "").localeCompare(b.game.gameTitle || "", undefined, {
+                        sensitivity: "base",
+                    });
+                });
+
+                const filtered = {};
+                filteredPairs.forEach(({ id, game }) => {
+                    filtered[id] = game;
+                });
+
                 renderGamesGrid(filtered);
             };
 
@@ -208,6 +306,14 @@
                         title.title = game.gameTitle || "";
                         title.textContent = game.gameTitle || "Untitled";
                         main.appendChild(title);
+
+                        const gameTags = normalizeTags(game.tags);
+                        if (gameTags.length) {
+                            const tags = document.createElement("div");
+                            tags.className = "row-tags";
+                            tags.textContent = gameTags.join(", ");
+                            main.appendChild(tags);
+                        }
 
                         // Right: options-button only (no Play button)
                         const actions = document.createElement("div");
@@ -312,6 +418,15 @@
 
                     gameContainer.appendChild(gameBox);
                     gameContainer.appendChild(titleContainer);
+
+                    const gameTags = normalizeTags(game.tags);
+                    if (gameTags.length) {
+                        const tags = document.createElement("div");
+                        tags.className = "game-tags";
+                        tags.textContent = gameTags.join(", ");
+                        gameContainer.appendChild(tags);
+                    }
+
                     gameContainer.appendChild(optionsMenu);
 
                     gamesGrid.appendChild(gameContainer);
@@ -403,7 +518,8 @@
             async function init() {
                 const games = Games.loadGames();
                 allGames = games;
-                renderGamesGrid(games);
+                refreshTagFilterUI();
+                filterGames("");
 
                 const settings = GlobalSettings.loadGlobalSettings();
 
@@ -429,9 +545,27 @@
 
                 const searchInput = document.getElementById("searchInput");
                 searchInput.addEventListener("input", (e) => filterGames(e.target.value));
+                document.getElementById("searchButton").addEventListener("click", () => {
+                    filterGames(searchInput.value);
+                });
+
+                const tagFilterButton = document.getElementById("tagFilterButton");
+                const tagFilterMenu = document.getElementById("tagFilterMenu");
+
+                tagFilterButton.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    tagFilterMenu.classList.toggle("show");
+                });
+
+                document.addEventListener("click", (event) => {
+                    if (!tagFilterMenu.contains(event.target) && !tagFilterButton.contains(event.target)) {
+                        tagFilterMenu.classList.remove("show");
+                    }
+                });
 
                 Games.watchGamesFile(() => {
                     allGames = Games.loadGames();
+                    refreshTagFilterUI();
                     filterGames(currentQuery);
                 });
 
