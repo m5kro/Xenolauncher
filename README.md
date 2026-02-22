@@ -31,12 +31,12 @@ bitcoin:?lno=lno1pgt9setwdakxzatwvd5x2u3qg3hkuct5d9hkuucsacpcvnhsyh77376c0kvfrpk
 3. RPG VX Ace, VX, XP (MKXP-Z)
 4. RPG 2003, 2000 (EasyRPG)
 5. Flash (Ruffle)
-6. Wine (For everything else) <-- In Beta
+6. Ren'Py (Python)
+7. Wine (For everything else) <-- In Beta & In Progress
 
 # Planned Game Engines (No Particular Order)
 If you have other engines that can work please post it in an issue<br>
 1. Godot
-2. Ren'Py (Python) <-- In Progress
 3. Java
 4. TyranoBuilder
 5. HTML
@@ -52,16 +52,16 @@ Some of these can still be used with wine<br>
 2. Search bar
 3. Autodetect game type
 4. Check for updates
+5. Categories/Tags
 
 # Planned Features/TODO (No Particular Order)
 1. Auto Read Game Folders
 2. Auto Add Icons
 3. Pull from game database
 4. Pull settings from database
-5. Categories/Tags
-6. Better error correction/tracking
-7. Different/3rd party module repos
-8. Better module documentation/wiki
+5. Better error correction/tracking
+6. Different/3rd party module repos
+7. Better module documentation/wiki
 
 # Special Thanks
 A big thank you to the following people for their support of this project!<br>
