@@ -1417,7 +1417,7 @@
         await proceed();
     }
 
-    async function deleteWithEngine(game, { deleteFiles = false } = {}) {
+    async function deleteWithEngine(game) {
         if (!game || !game.gamePath || !game.gameEngine) return true;
 
         const gamePath = game.gamePath;
@@ -1443,18 +1443,6 @@
                     }
                     return false;
                 }
-            }
-        }
-
-        if (deleteFiles) {
-            try {
-                if (fs.existsSync(gameFolder)) fs.rmSync(gameFolder, { recursive: true, force: true });
-            } catch (e) {
-                console.error("Failed to delete game files:", e);
-                if (window.AppDialog && typeof window.AppDialog.alert === "function") {
-                    await window.AppDialog.alert(`Failed to delete game files: ${e.message}`, "Delete Error");
-                }
-                return false;
             }
         }
 

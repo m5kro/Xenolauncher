@@ -47,7 +47,6 @@
             darkTheme: prefersDark(),
             listView: false,
             deletionConfirmation: true,
-            confirmGameFileDeletion: true,
             checkUpdatesOnStartup: true,
             checkModuleUpdatesOnStartup: true,
             nonInstalledAutodetect: true,
@@ -60,6 +59,7 @@
     function saveGlobalSettings(next) {
         const file = getSettingsPath();
         const settings = Object.assign({}, loadGlobalSettings(), next || {});
+        delete settings.confirmGameFileDeletion;
         writeJson(file, settings);
         return settings;
     }

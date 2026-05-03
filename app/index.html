@@ -137,19 +137,14 @@
 
                 if (!doDelete) return;
 
-                let deleteFiles = false;
-                if (settings.confirmGameFileDeletion) {
-                    deleteFiles = await AppDialog.confirm("Would you also like to delete the game files?", "Delete Files");
-                }
-
                 const game = allGames?.[gameId] || Games.loadGames()?.[gameId] || null;
                 if (game) {
-                    const ok = await Module.deleteWithEngine(game, { deleteFiles });
+                    const ok = await Module.deleteWithEngine(game);
                     if (!ok) return;
                 }
 
                 const updated = Games.deleteGame(gameId);
-                await AppDialog.alert(deleteFiles ? "Game and files deleted." : "Game deleted.", "Game Deleted");
+                await AppDialog.alert("Game deleted.", "Game Deleted");
                 allGames = updated || {};
                 refreshTagFilterUI();
                 filterGames(currentQuery);
