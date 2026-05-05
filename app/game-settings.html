@@ -699,6 +699,15 @@
                 };
 
                 const gamesNow = Games.loadGames();
+                const titleLower = title.toLowerCase();
+                const duplicateTitle = Object.entries(gamesNow).some(
+                    ([id, game]) => (!editing || String(id) !== String(gameId)) && String(game?.gameTitle || "").toLowerCase() === titleLower
+                );
+                if (duplicateTitle) {
+                    await AppDialog.alert("A game with this name already exists.", "Duplicate Game");
+                    return;
+                }
+
                 if (editing) {
                     gamesNow[gameId] = newData;
                     try {
