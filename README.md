@@ -17,10 +17,6 @@ An in progress modular game launcher and compatability layer for macos. The goal
 
 **Bitcoin:**<br>
 bc1p2ryll0cjz3c50vktmj6wh3tykl9mtlylkp4l5e3403n20r9x9l4qhuyfgp<br><be>
-
-**Bitcoin Lightning:**<br>
-Reusable Bolt12 URI<br>
-bitcoin:?lno=lno1pgzkgmmwdae3pmsrse80qf0aara4slvcjxrvu6j2rp5ftmjy4yntlsmsutpkvkt6878sxht8tmtt6p3u7vkawrcvhhrax62tyv7we36fhwknr8jyf8fnr2lwqgp2qachyf4vvfwg7msvhhfv27scu4gkjrg38kueak6gm5mhjwpey4sqxw5cdezm554dsuycunwtxyh6lzwz0mtx3ralnmt809s3ce245k4pacvm97la25a3jg27gavnme7rxdqqkaps9r3tfnsf69t69w3rmnm7uhexfdgj3gld9zlax7s2m463u4au5zsmqqeda0r4pfq2sfz8ytvnqzeyyv6mgs6du9mr8ynfnp6wgpws00xkegf88qu6g7y7glkcqzws9j7sqlxq3zts
 </details>
 
 # Supported Game Engines
