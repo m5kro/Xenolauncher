@@ -89,7 +89,7 @@ jobs:
           codesign --force --deep -s - "Xenolauncher-arm64.app"
 
           # Apply a Finder custom icon to the final .app bundle
-          ICON_SRC="${GITHUB_WORKSPACE}/icon.png"
+          ICON_SRC="${GITHUB_WORKSPACE}/app/icon.png"
           "${GITHUB_WORKSPACE}/fileicon" set "Xenolauncher-arm64.app" "${ICON_SRC}"
 
           # Create tar.gz preserving extended attributes (Finder icon, etc.)
