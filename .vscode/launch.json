@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:Xenolauncher}/native",
+      "name": "Debug Xenolauncher (native)",
+      "target": "Xenolauncher",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug Xenolauncher (native)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:Xenolauncher}/native",
+      "name": "Release Xenolauncher (native)",
+      "target": "Xenolauncher",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release Xenolauncher (native)"
+    }
+  ]
+}

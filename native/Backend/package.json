@@ -1,0 +1,7 @@
+{
+  "name": "xenolauncher-native-helper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "engines": { "node": ">=22" }
+}

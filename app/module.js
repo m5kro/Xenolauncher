@@ -1,11 +1,32 @@
 // module.js (unified)
 // A heck ton of AI generated code below :P
 // js is not my strong suit
-(function () {
+// The same core is used by NW.js and the native launcher's Node helper.
+(function (factory) {
+    if (typeof window === "undefined") {
+        module.exports = factory;
+    } else {
+        window.Module = factory({
+            getUi: () => window.AppDialog,
+            getGames: () => window.Games,
+            getAppSupportDir: () => window.GlobalSettings.getAppSupportDir(),
+        });
+    }
+})(function (services = {}) {
     const fs = require("fs");
     const path = require("path");
     const os = require("os");
     const { exec } = require("child_process");
+
+    const appSupportDir = () => services.getAppSupportDir
+        ? services.getAppSupportDir()
+        : path.join(os.homedir(), "Library", "Application Support", "Xenolauncher");
+    const GlobalSettings = { getAppSupportDir: appSupportDir };
+    const Games = {
+        loadGames: (...args) => services.getGames().loadGames(...args),
+        saveGames: (...args) => services.getGames().saveGames(...args),
+    };
+    const currentDialog = () => services.getUi ? services.getUi() : null;
 
     const DEFAULT_REPO = { owner: "m5kro", repo: "Xenolauncher-Modules", branch: "main" };
 
@@ -61,7 +82,7 @@
 
     // ===== Local mod dir helpers =============================================
     function getModulesDir() {
-        return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "modules");
+        return path.join(appSupportDir(), "modules");
     }
 
     function clearRequireCacheForDir(dirPath) {
@@ -84,7 +105,7 @@
 
     function getCacheDir() {
         // Shared across NW.js windows
-        return path.join(os.homedir(), "Library", "Application Support", "Xenolauncher", "cache");
+        return path.join(appSupportDir(), "cache");
     }
 
     function repoKey(r = DEFAULT_REPO) {
@@ -228,7 +249,9 @@
                 description: json.description || "",
                 raw: json,
             };
-        } catch {
+        } catch (error) {
+            opts.signal?.throwIfAborted();
+            opts.onManifestError?.(folderName, error);
             return {
                 folder: folderName,
                 name: folderName,
@@ -283,9 +306,11 @@
                 saveRemoteManifestsCache(fresh, repo);
                 return fresh;
             } catch (e) {
+                opts.signal?.throwIfAborted();
                 // If GitHub rate-limits you, fall back to the last cached snapshot.
                 const fallback = loadRemoteManifestsCache(repo);
                 if (fallback) {
+                    opts.onFallback?.(e);
                     console.warn("fetchRemoteManifestsList: GitHub fetch failed; using cached manifests:", e);
                     remoteManifestsMem = fallback;
                     return fallback;
@@ -661,7 +686,7 @@
 
         stepper?.next?.("Checking dependency updates…");
 
-        const resolvedUpdates = updates || (await getDependencyUpdates(folder));
+        const resolvedUpdates = updates || (await getDependencyUpdates(folder, opts));
         const entries = Object.entries(resolvedUpdates || {});
         if (!entries.length) {
             safeCall(progress?.onStep, { label: "No dependency updates found.", phase: "done" });
@@ -730,7 +755,7 @@
         throwIfAborted(signal);
 
         // Pre-compute updates so we can set an accurate total
-        const updates = await getDependencyUpdates(folder);
+        const updates = await getDependencyUpdates(folder, opts);
         const entries = Object.entries(updates || {});
 
         const updateSteps = entries.reduce((sum, [, builds]) => {
@@ -945,6 +970,7 @@
     }
 
     async function extractArchive(archivePath, destDir, opts = {}) {
+        if (services.extractArchive) return services.extractArchive(archivePath, destDir, opts);
         const signal = opts && opts.signal;
         throwIfAborted(signal);
         fs.mkdirSync(destDir, { recursive: true });
@@ -1313,14 +1339,14 @@
     }
 
     function getModuleUi() {
-        const dialog = window.AppDialog;
+        const dialog = currentDialog();
         return {
             alert(message, title = "Notice") {
                 if (dialog && typeof dialog.alert === "function") {
                     return dialog.alert(message, title);
                 }
                 try {
-                    window.alert(String(message || ""));
+                    if (typeof window !== "undefined") window.alert(String(message || ""));
                 } catch {}
                 return Promise.resolve(true);
             },
@@ -1329,7 +1355,7 @@
                     return dialog.confirm(message, title);
                 }
                 try {
-                    return Promise.resolve(window.confirm(String(message || "")));
+                    return Promise.resolve(typeof window !== "undefined" ? window.confirm(String(message || "")) : false);
                 } catch {}
                 return Promise.resolve(false);
             },
@@ -1338,7 +1364,7 @@
 
     async function launchWithEngine(game, { openSubwindow } = {}) {
         const modulePath = path.join(getModulesDir(), game.gameEngine);
-        const dialog = window.AppDialog;
+        const dialog = currentDialog();
         const ui = getModuleUi();
 
         const proceed = async () => {
@@ -1438,8 +1464,8 @@
                     await Promise.resolve(postDelete(gameName, gameFolder, gamePath, ui));
                 } catch (e) {
                     console.error(`Error deleting with ${game.gameEngine}:`, e);
-                    if (window.AppDialog && typeof window.AppDialog.alert === "function") {
-                        await window.AppDialog.alert(`Failed to run module post-delete hook: ${e.message}`, "Delete Error");
+                    if (currentDialog() && typeof currentDialog().alert === "function") {
+                        await currentDialog().alert(`Failed to run module post-delete hook: ${e.message}`, "Delete Error");
                     }
                     return false;
                 }
@@ -1474,18 +1500,23 @@
         }
     }
 
-    async function loadUpdatesProvider(folder) {
+    async function loadUpdatesProvider(folder, opts = {}) {
         const manifest = readLocalManifestFor(folder);
         if (!manifest || !manifest.updates) return null;
         const file = updatesFilePath(folder);
-        if (!fs.existsSync(file)) return null;
+        if (!fs.existsSync(file)) {
+            if (opts.strict) throw new Error(`Missing updates.js for ${folder}`);
+            return null;
+        }
 
         // Clear require cache to ensure fresh reads
         delete require.cache[file];
         try {
             const mod = require(file);
             if (mod && typeof mod.checkUpdates === "function") return mod;
+            if (opts.strict) throw new Error(`Module ${folder} does not export checkUpdates()`);
         } catch (e) {
+            if (opts.strict) throw e;
             console.warn("Failed loading updates.js for", folder, e);
         }
         return null;
@@ -1512,20 +1543,36 @@
         return null;
     }
 
-    async function getDependencyUpdates(folder) {
+    // Optional strict/cancellable checks let native clients distinguish an
+    // unavailable provider from a successful check with no updates.
+    function awaitWithSignal(promise, signal) {
+        if (!signal) return promise;
+        signal.throwIfAborted();
+        return new Promise((resolve, reject) => {
+            const abort = () => reject(signal.reason);
+            signal.addEventListener("abort", abort, { once: true });
+            Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+        });
+    }
+    async function getDependencyUpdates(folder, opts = {}) {
         try {
-            const prov = await loadUpdatesProvider(folder);
+            opts.signal?.throwIfAborted();
+            const prov = await loadUpdatesProvider(folder, opts);
             if (!prov) return {};
-            const out = await prov.checkUpdates(getModuleUi());
+            const out = await awaitWithSignal(prov.checkUpdates(getModuleUi(), opts), opts.signal);
+            if (opts.strict && out != null && (typeof out !== "object" || Array.isArray(out))) {
+                throw new Error(`Invalid update result for ${folder}`);
+            }
             return out && typeof out === "object" ? out : {};
         } catch (e) {
+            if (opts.strict || opts.signal?.aborted) throw e;
             console.warn("getDependencyUpdates error:", e);
             return {};
         }
     }
 
-    async function hasDependencyUpdates(folder) {
-        const map = await getDependencyUpdates(folder);
+    async function hasDependencyUpdates(folder, opts = {}) {
+        const map = await getDependencyUpdates(folder, opts);
         return Object.keys(map).length > 0;
     }
 
@@ -1565,9 +1612,12 @@
             const updatesByFolder = { ...base };
 
             for (const f of folders) {
+                opts.signal?.throwIfAborted();
                 try {
-                    updatesByFolder[f] = !!(await hasDependencyUpdates(f));
+                    updatesByFolder[f] = !!(await hasDependencyUpdates(f, opts));
                 } catch (e) {
+                    if (opts.signal?.aborted) throw e;
+                    opts.onError?.(f, e);
                     console.warn("checkDependencyUpdatesForFolders failed for", f, e);
                     // keep prior cached value if we have it, otherwise assume false
                     updatesByFolder[f] = !!updatesByFolder[f];
@@ -1767,7 +1817,7 @@
     }
 
     // ===== Public API =========================================================
-    window.Module = {
+    const Module = {
         // repo / paths
         DEFAULT_REPO,
         getModulesDir,
@@ -1816,4 +1866,5 @@
         mergeGameArgsWithSchema,
         reconcileAndPersistGameArgs,
     };
-})();
+    return Module;
+});
