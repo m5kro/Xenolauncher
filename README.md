@@ -61,8 +61,8 @@ Some of these can still be used with wine<br>
 
 # Special Thanks
 A big thank you to the following people for their support of this project!<br>
-athanadoc05 - Donator
-KylinDemons - Contributor
+athanadoc05 - Donator<br>
+[KylinDemons](https://github.com/KylinDemons) - Contributor
 
 # Commercial Use
 Please feel free to use Xenolauncher for internal development of commercial software (such as developing a new game).<br>
