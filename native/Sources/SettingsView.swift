@@ -43,8 +43,9 @@ struct SettingsView: View {
             Section(store.t("updates.settings")) {
                 Toggle(store.t("updates.onStartup"), isOn: setting("checkModuleUpdatesOnStartup", defaultValue: true))
                 Button(store.t("updates.check")) { Task { await store.checkEngineUpdates() } }
-                    .disabled(!bridge.connected)
+                    .disabled(!bridge.connected || store.checkingEngineUpdates)
             }
+            ProxySettingsView()
             Section(store.t("settings.runtime")) {
                 LabeledContent(store.t("settings.service"), value: bridge.connected ? "Node.js \(bridge.nodeVersion)" : store.t("service.notConnected"))
                 HStack {

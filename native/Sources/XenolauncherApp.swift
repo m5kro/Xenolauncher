@@ -12,8 +12,10 @@ struct XenolauncherApp: App {
                 .environmentObject(store.bridge)
                 .environment(\.locale, store.localization.locale)
                 .frame(minWidth: 900, minHeight: 600)
-                .task { if store.dataPath.isEmpty { await store.start() } }
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in store.bridge.stop() }
+                .task {
+                    appDelegate.bridge = store.bridge
+                    if store.dataPath.isEmpty { await store.start() }
+                }
         }
         .defaultSize(width: 1120, height: 740)
         .windowToolbarStyle(.unifiedCompact(showsTitle: true))
@@ -36,6 +38,29 @@ struct XenolauncherApp: App {
 
 @MainActor
 final class LauncherAppDelegate: NSObject, NSApplicationDelegate {
+    weak var bridge: NodeBridge?
+    private var terminating = false
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let bridge else { return .terminateNow }
+        if !terminating {
+            terminating = true
+            Task { @MainActor in
+                await bridge.shutdown()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        bridge?.stop()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // SwiftPM/Xcode executable launches also use the bundled icon in the Dock.
         guard let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),

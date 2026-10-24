@@ -27,12 +27,16 @@ struct EngineManagerView: View {
                     Task { await store.fetchRemote() }
                 } label: {
                     Label(store.t("engines.fetch"), systemImage: "arrow.down.circle")
-                }.launcherSecondaryActionStyle().disabled(store.busy)
+                }.launcherSecondaryActionStyle().disabled(store.busy || store.checkingEngineUpdates || !store.bridge.connected)
             }
             HStack(spacing: 12) {
                 Button { Task { await store.checkEngineUpdates() } } label: {
                     Label(store.t("updates.check"), systemImage: "arrow.triangle.2.circlepath")
-                }.launcherSecondaryActionStyle().disabled(store.busy || !store.bridge.connected)
+                }.launcherSecondaryActionStyle().disabled(store.busy || store.checkingEngineUpdates || !store.bridge.connected)
+                if store.checkingEngineUpdates {
+                    ProgressView().controlSize(.small)
+                    Text(store.t("updates.checking")).font(.caption).foregroundStyle(.secondary)
+                }
                 if store.engineUpdateCount > 0 {
                     Button(store.t("updates.all", ["count": String(store.engineUpdateCount)])) {
                         Task { await store.updateAllEngines() }
@@ -124,6 +128,10 @@ struct EngineManagerView: View {
                                         }.launcherPrimaryActionStyle().disabled(store.busy)
                                     }
                                     Menu(store.t("common.manage")) {
+                                        Button(store.t("integrity.check")) {
+                                            Task { await store.checkEngineIntegrity(module) }
+                                        }
+                                        Divider()
                                         Button(store.t("engines.update")) {
                                             Task {
                                                 await store.moduleTask(module, action: "update")
@@ -141,7 +149,7 @@ struct EngineManagerView: View {
                                                 await store.moduleTask(module, action: "uninstall")
                                             }
                                         }
-                                    }.fixedSize().disabled(store.busy)
+                                    }.fixedSize().disabled(store.busy || !store.bridge.connected)
                                 }
                             }.padding(18).background(
                                 .quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
@@ -150,5 +158,8 @@ struct EngineManagerView: View {
                 }
             }
         }.padding(28)
+            .sheet(item: $store.integrityReport) { report in
+                EngineIntegrityView(report: report).environmentObject(store)
+            }
     }
 }

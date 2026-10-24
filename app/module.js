@@ -251,6 +251,7 @@
             };
         } catch (error) {
             opts.signal?.throwIfAborted();
+            if (opts.strict) throw error;
             opts.onManifestError?.(folderName, error);
             return {
                 folder: folderName,
@@ -417,78 +418,45 @@
     }
 
     async function downloadUrlToFileWithProgress(url, destPath, progress, label = "Download", opts = {}) {
-        const signal = opts && opts.signal;
+        const { pipeline } = require("node:stream/promises");
+        const { Readable, Transform } = require("node:stream");
+        const { createHash } = require("node:crypto");
+        const signal = opts.signal;
         throwIfAborted(signal);
-
         const res = await fetch(url, signal ? { signal } : undefined);
-        if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
-        const total = parseInt(res.headers.get("content-length") || "0", 10) || null;
-
-        safeCall(progress?.onDownloadStart, { label, totalBytes: total, url, destPath });
-
-        const body = res.body;
-        const ws = fs.createWriteStream(destPath);
+        if (!res.ok || !res.body) {
+            await res.body?.cancel();
+            throw new Error(`Download failed: ${res.status} ${res.statusText} (${label})`);
+        }
+        const total = Number(res.headers.get("content-length")) || null;
+        const sha256 = createHash("sha256");
+        const gitHash = opts.expectedGitSha ? createHash("sha1").update(`blob ${opts.expectedSize}\0`) : null;
         let downloaded = 0;
         const speedOf = mkSpeedometer();
-
-        const finishWrite = () =>
-            new Promise((resolve, reject) => {
-                ws.on("error", reject);
-                ws.end(resolve);
-            });
-
-        if (body && typeof body.getReader === "function") {
-            const reader = body.getReader();
-            try {
-                while (true) {
-                    throwIfAborted(signal);
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    if (value) {
-                        const buf = Buffer.from(value);
-                        ws.write(buf);
-                        downloaded += buf.length;
-                        safeCall(progress?.onDownloadProgress, {
-                            label,
-                            downloadedBytes: downloaded,
-                            totalBytes: total,
-                            bytesPerSecond: speedOf(downloaded),
-                        });
-                    }
-                }
-            } catch (e) {
-                if (isAbortError(e)) {
-                    try {
-                        ws.destroy();
-                    } catch {}
-                    try {
-                        fs.rmSync(destPath, { force: true });
-                    } catch {}
-                }
-                throw e;
-            } finally {
-                try {
-                    reader.releaseLock?.();
-                } catch {}
-                await finishWrite();
-            }
-        } else {
+        safeCall(progress?.onDownloadStart, { label, totalBytes: total, url, destPath });
+        try {
+            const meter = new Transform({ transform(chunk, encoding, callback) {
+                downloaded += chunk.length;
+                sha256.update(chunk);
+                gitHash?.update(chunk);
+                safeCall(progress?.onDownloadProgress, { label, downloadedBytes: downloaded,
+                    totalBytes: total, bytesPerSecond: speedOf(downloaded) });
+                callback(null, chunk);
+            }});
+            const source = typeof res.body.getReader === "function" ? Readable.fromWeb(res.body) : res.body;
+            await pipeline(source, meter, fs.createWriteStream(destPath), { signal });
+            if (opts.expectedSize != null && downloaded !== opts.expectedSize) throw new Error(`Incomplete download: ${label}`);
+            if (gitHash && gitHash.digest("hex") !== opts.expectedGitSha) throw new Error(`File checksum mismatch: ${label}`);
+            const digest = sha256.digest("hex");
+            if (opts.sha256 && digest.toLowerCase() !== String(opts.sha256).toLowerCase()) throw new Error(`Archive checksum mismatch: ${label}`);
             throwIfAborted(signal);
-            const buf = Buffer.from(await res.arrayBuffer());
-            fs.writeFileSync(destPath, buf);
-            downloaded = buf.length;
-            safeCall(progress?.onDownloadProgress, {
-                label,
-                downloadedBytes: downloaded,
-                totalBytes: total || downloaded,
-                bytesPerSecond: 0,
-            });
+        } catch (error) {
+            fs.rmSync(destPath, { force: true });
+            throw error;
         }
-
         safeCall(progress?.onDownloadEnd, { label, downloadedBytes: downloaded, totalBytes: total || downloaded });
         return { downloadedBytes: downloaded, totalBytes: total || downloaded };
     }
-
     async function listRemoteFilesRecursive(remoteDir, repo = DEFAULT_REPO, opts = {}) {
         const signal = opts && opts.signal;
         throwIfAborted(signal);
@@ -502,7 +470,7 @@
             if (item.type === "dir") {
                 out.push(...(await listRemoteFilesRecursive(remotePath, repo, opts)));
             } else if (item.type === "file") {
-                out.push({ remotePath, size: typeof item.size === "number" ? item.size : 0 });
+                out.push({ remotePath, size: typeof item.size === "number" ? item.size : 0, sha: item.sha });
             }
         }
         return out;
@@ -521,85 +489,20 @@
         safeCall(progress?.onDownloadStart, { label: "Module download", totalBytes, remoteDir, localDir });
 
         let downloadedTotal = 0;
-        const speedOf = mkSpeedometer();
-
         for (const f of files) {
             throwIfAborted(signal);
-
             const rel = f.remotePath.substring(remoteDir.length + 1);
+            if (!rel || rel.split("/").some(part => !part || part === "." || part === "..") || rel.includes("\\")) throw new Error("Invalid module file path");
             const localPath = path.join(localDir, ...rel.split("/"));
             fs.mkdirSync(path.dirname(localPath), { recursive: true });
-
-            const url = `${getRawBase(repo)}/${f.remotePath}`;
-            const res = await fetch(url, signal ? { signal } : undefined);
-            if (!res.ok) continue;
-
-            const body = res.body;
-            const ws = fs.createWriteStream(localPath);
-
-            if (body && typeof body.getReader === "function") {
-                const reader = body.getReader();
-                try {
-                    while (true) {
-                        throwIfAborted(signal);
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        if (value) {
-                            const buf = Buffer.from(value);
-                            ws.write(buf);
-                            downloadedTotal += buf.length;
-                            safeCall(progress?.onDownloadProgress, {
-                                label: "Module download",
-                                downloadedBytes: downloadedTotal,
-                                totalBytes: totalBytes || downloadedTotal,
-                                bytesPerSecond: speedOf(downloadedTotal),
-                            });
-                        }
-                    }
-                } catch (e) {
-                    if (isAbortError(e)) {
-                        try {
-                            ws.destroy();
-                        } catch {}
-                        try {
-                            fs.rmSync(localPath, { force: true });
-                        } catch {}
-                    }
-                    throw e;
-                } finally {
-                    try {
-                        reader.releaseLock?.();
-                    } catch {}
-                    await new Promise((resolve, reject) => {
-                        ws.on("error", reject);
-                        ws.end(resolve);
-                    });
-                }
-            } else {
-                throwIfAborted(signal);
-                const data = await res.arrayBuffer();
-                const buf = Buffer.from(data);
-                fs.writeFileSync(localPath, buf);
-                downloadedTotal += buf.length;
-                safeCall(progress?.onDownloadProgress, {
-                    label: "Module download",
-                    downloadedBytes: downloadedTotal,
-                    totalBytes: totalBytes || downloadedTotal,
-                    bytesPerSecond: speedOf(downloadedTotal),
-                });
-                try {
-                    ws.end();
-                } catch {}
-            }
+            const result = await downloadUrlToFileWithProgress(`${getRawBase(repo)}/${f.remotePath}`, localPath, {
+                onDownloadProgress: detail => safeCall(progress?.onDownloadProgress, { ...detail,
+                    label: "Module download", downloadedBytes: downloadedTotal + detail.downloadedBytes, totalBytes }),
+            }, rel, { ...opts, expectedSize: f.size, expectedGitSha: f.sha });
+            downloadedTotal += result.downloadedBytes;
         }
-
-        safeCall(progress?.onDownloadEnd, {
-            label: "Module download",
-            downloadedBytes: downloadedTotal,
-            totalBytes: totalBytes || downloadedTotal,
-        });
-
-        return { filesCount: files.length, totalBytes: totalBytes || downloadedTotal };
+        safeCall(progress?.onDownloadEnd, { label: "Module download", downloadedBytes: downloadedTotal, totalBytes });
+        return { filesCount: files.length, totalBytes: downloadedTotal };
     }
 
     function makeStepper(progress) {
@@ -630,7 +533,7 @@
             return;
         }
 
-        const deps = depsFromManifest(manifest);
+        const deps = { ...depsFromManifest(manifest), ...opts.dependencyOverrides };
         const depEntries = Object.entries(deps);
         if (depEntries.length === 0) return;
 
@@ -651,7 +554,7 @@
             const fileName = path.basename(new URL(spec.link).pathname);
             const archivePath = path.join(depDir, fileName);
 
-            await downloadUrlToFileWithProgress(spec.link, archivePath, progress, `Dependency: ${depName}`, opts);
+            await downloadUrlToFileWithProgress(spec.link, archivePath, progress, `Dependency: ${depName}`, { ...opts, sha256: spec.sha256 });
 
             if (spec.unzip) {
                 stepper?.next?.(`Extracting dependency: ${depName}`);
@@ -660,6 +563,7 @@
                 await extractArchive(archivePath, depDir, opts);
                 fs.rmSync(archivePath, { force: true });
             }
+            services.installedScope?.(modulePath, `deps/${depName}`, spec);
         }
 
         try {
@@ -717,7 +621,7 @@
             const fileName = path.basename(new URL(spec.link).pathname);
             const archivePath = path.join(depDir, fileName);
 
-            await downloadUrlToFileWithProgress(spec.link, archivePath, progress, `Dependency: ${depName}`, opts);
+            await downloadUrlToFileWithProgress(spec.link, archivePath, progress, `Dependency: ${depName}`, { ...opts, sha256: spec.sha256 });
 
             if (spec.unzip) {
                 stepper?.next?.(`Extracting dependency: ${depName}`);
@@ -726,6 +630,7 @@
                 await extractArchive(archivePath, depDir, opts);
                 fs.rmSync(archivePath, { force: true });
             }
+            services.installedScope?.(modulePath, `deps/${depName}`, spec);
 
             updatedDeps.push(depName);
         }
@@ -798,6 +703,11 @@
             if (fs.existsSync(localRoot)) fs.rmSync(localRoot, { recursive: true, force: true });
 
             await downloadDirectoryWithProgress(remoteRoot, localRoot, repo, progress, opts);
+            const verifiedManifest = safeReadJson(path.join(localRoot, "manifest.json"));
+            if (!verifiedManifest || typeof verifiedManifest.version !== "string" || !fs.existsSync(path.join(localRoot, "launcher.js"))) {
+                throw new Error(`Incomplete module: ${folder}`);
+            }
+            services.installedScope?.(localRoot, ".", { repo, manifest: verifiedManifest });
 
             // Re-check deps from the freshly downloaded manifest
             const localManifest = safeReadJson(path.join(localRoot, "manifest.json")) || {};
@@ -816,17 +726,8 @@
             stepper.next("Done.");
             return true;
         } catch (e) {
-            if (isAbortError(e)) {
-                // User asked to clean up via uninstall to avoid leaving damaged files.
-                try {
-                    uninstallModule(folder);
-                } catch {
-                    try {
-                        fs.rmSync(localRoot, { recursive: true, force: true });
-                    } catch {}
-                }
-                throw mkAbortError();
-            }
+            fs.rmSync(localRoot, { recursive: true, force: true });
+            if (isAbortError(e)) throw mkAbortError();
             throw e;
         }
     }
@@ -1832,6 +1733,7 @@
 
         // install / uninstall
         downloadDirectoryWithProgress,
+        downloadUrlToFileWithProgress,
         installModuleWithProgress,
         uninstallModule,
 

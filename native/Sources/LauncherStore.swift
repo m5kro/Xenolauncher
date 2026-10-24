@@ -35,7 +35,9 @@ final class LauncherStore: ObservableObject {
     @Published var modules: [EngineModule] = []
     @Published var remoteModules: [EngineModule] = []
     @Published var engineUpdates: EngineUpdateReport?
+    @Published var integrityReport: EngineIntegrityReport?
     @Published var updateCheckError: String?
+    @Published private(set) var checkingEngineUpdates = false
     private var startupUpdateCheckDone = false
     var engineUpdateCount: Int { engineUpdates?.available.count ?? 0 }
     func engineUpdate(for id: String) -> EngineUpdate? { engineUpdates?.updates.first { $0.id == id } }
@@ -84,8 +86,8 @@ final class LauncherStore: ObservableObject {
         await perform("task.refresh") {
             self.apply(try await self.bridge.call("snapshot"))
             self.statusMessage = "status.refreshed"
-            if self.route == "engines" { try await self.loadEngineUpdates() }
         }
+        if route == "engines" { await checkEngineUpdates() }
     }
     func apply(_ snapshot: JSONValue) {
         games = snapshot["games"].arrayValue.map { GameRecord(data: $0.objectValue) }
@@ -152,40 +154,43 @@ final class LauncherStore: ObservableObject {
     func updateSetting(_ key: String, _ value: JSONValue) async {
         await perform("task.settings") {
             self.apply(try await self.bridge.call("saveSettings", [key: value]))
+            if key == "networkProxy" { self.updateCheckError = nil }
             self.statusMessage = "status.settings"
         }
     }
     func fetchRemote() async {
-        await perform("engines.fetch") {
-            try await self.loadEngineUpdates()
-        }
+        await checkEngineUpdates()
     }
     func checkEngineUpdates(automatic: Bool = false) async {
-        await perform("updates.checking", presentError: !automatic) {
-            try await self.loadEngineUpdates()
+        guard !checkingEngineUpdates, !busy, bridge.connected else { return }
+        do { try await loadEngineUpdates() }
+        catch {
+            bridge.appendLog(error.localizedDescription)
+            if !automatic { self.error = error.localizedDescription }
         }
     }
     private func loadEngineUpdates() async throws {
+        guard !checkingEngineUpdates else { return }
+        checkingEngineUpdates = true
+        defer { checkingEngineUpdates = false }
         updateCheckError = nil
         do {
-            let response = try await bridge.call("checkEngineUpdates", ["forceRefresh": .bool(true)], tracked: true)
+            let response = try await bridge.call("checkEngineUpdates", ["forceRefresh": .bool(true)])
             let report = EngineUpdateReport(response)
             engineUpdates = report
             remoteModules = response["remoteModules"].arrayValue.map { EngineModule(data: $0.objectValue) }.sorted { $0.name < $1.name }
             report.warnings.forEach { bridge.appendLog($0) }
-            statusMessage = report.incomplete ? "updates.partial" : report.available.isEmpty ? "updates.none"
-                : LocalizedMessage("updates.found", count: report.available.count)
         } catch {
+            // Engine writes preempt a background check. This is expected and
+            // must not turn a successful foreground operation into an alert.
+            if (error as? LauncherError)?.key == "error.cancelled" { return }
             updateCheckError = error.localizedDescription
             throw error
         }
     }
-    private func recheckAfterModuleTask() async {
-        do { try await loadEngineUpdates() }
-        catch { bridge.appendLog(error.localizedDescription) }
-    }
     func updateAllEngines() async {
         guard engineUpdateCount > 0 else { return }
+        var completed = false
         await perform("updates.updatingAll") {
             do {
                 self.apply(try await self.bridge.call("updateAllEngines", tracked: true))
@@ -195,9 +200,10 @@ final class LauncherStore: ObservableObject {
                 if let snapshot = try? await self.bridge.call("snapshot") { self.apply(snapshot) }
                 throw error
             }
-            await self.recheckAfterModuleTask()
             self.statusMessage = "status.engineTask"
+            completed = true
         }
+        if completed { await checkEngineUpdates(automatic: true) }
     }
     func moduleTask(_ module: EngineModule, action: String) async {
         if action == "uninstall" {
@@ -205,13 +211,40 @@ final class LauncherStore: ObservableObject {
                 return
             }
         }
+        var completed = false
         await perform(LocalizedMessage(action == "uninstall" ? "task.uninstall" : "task.installUpdate", ["module": module.name])) {
             self.apply(
                 try await self.bridge.call(
                     "moduleTask", ["folder": .string(module.id), "action": .string(action)],
                     tracked: true))
-            await self.recheckAfterModuleTask()
             self.statusMessage = "status.engineTask"
+            completed = true
+        }
+        if completed { await checkEngineUpdates(automatic: true) }
+    }
+    func checkEngineIntegrity(_ module: EngineModule) async {
+        integrityReport = nil
+        await perform(LocalizedMessage("integrity.checking", ["module": module.name])) {
+            let response = try await self.bridge.call("checkEngineIntegrity", ["folder": .string(module.id)], tracked: true)
+            self.integrityReport = EngineIntegrityReport(response)
+            self.statusMessage = "integrity.checked"
+        }
+    }
+    func repairEngine(_ folder: String) async {
+        var completed = false
+        await perform(LocalizedMessage("integrity.repairing", ["module": engineName(for: folder)])) {
+            do {
+                self.apply(try await self.bridge.call("repairEngine", ["folder": .string(folder)], tracked: true))
+            } catch {
+                if let snapshot = try? await self.bridge.call("snapshot") { self.apply(snapshot) }
+                throw error
+            }
+            self.statusMessage = "integrity.repaired"
+            completed = true
+        }
+        if completed, let module = modules.first(where: { $0.id == folder }) {
+            await checkEngineIntegrity(module)
+            await checkEngineUpdates(automatic: true)
         }
     }
     func confirm(_ title: String, detail: String) async -> Bool {
