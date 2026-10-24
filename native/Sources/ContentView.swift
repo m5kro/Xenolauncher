@@ -221,8 +221,9 @@ struct StatusBar: View {
     @EnvironmentObject private var bridge: NodeBridge
     var body: some View {
         HStack(spacing: 10) {
-            if store.busy { ProgressView().controlSize(.small) }
-            Text(store.busy ? (bridge.progressText.isEmpty ? store.taskTitle : bridge.progressText) : store.status)
+            if store.busy || store.checkingEngineUpdates { ProgressView().controlSize(.small) }
+            Text(store.busy ? (bridge.progressText.isEmpty ? store.taskTitle : bridge.progressText)
+                : store.checkingEngineUpdates ? store.t("updates.checking") : store.status)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer()
             if store.busy, let fraction = bridge.fraction { ProgressView(value: fraction).frame(width: 100) }

@@ -48,6 +48,32 @@ function writeJSON(file, value) {
 }
 const gamesFile = path.join(dataDir, "games.json");
 const settingsFile = path.join(dataDir, "global-settings.json");
+const { createFetch, proxySettings } = require("./network.cjs");
+const proxyResolvers = new Map();
+function resolveSystemProxy(url, signal) {
+    signal?.throwIfAborted();
+    return new Promise((resolve, reject) => {
+        const resolverID = randomUUID();
+        const finish = (routes, error) => {
+            clearTimeout(timer);
+            proxyResolvers.delete(resolverID);
+            signal?.removeEventListener("abort", abort);
+            error ? reject(error) : resolve(routes);
+        };
+        const abort = () => finish(null, signal.reason);
+        const timer = setTimeout(() => finish(null, failure("error.systemProxy", "Could not resolve the macOS system proxy.")), 20000);
+        proxyResolvers.set(resolverID, finish);
+        signal?.addEventListener("abort", abort, { once: true });
+        event("resolveSystemProxy", { resolverID, url });
+    });
+}
+// Install before loading upstream code or engine providers, so their global
+// fetch calls share the same routing, cancellation and streaming downloads.
+globalThis.fetch = createFetch({
+    getSettings: () => context.getStore()?.networkProxy ?? readJSON(settingsFile).networkProxy,
+    resolveSystemProxy,
+    getSignal: () => context.getStore()?.networkSignal ?? context.getStore()?.signal,
+});
 const games = { loadGames: () => readJSON(gamesFile), saveGames: value => writeJSON(gamesFile, value) };
 function component(value, label = "name") {
     if (typeof value !== "string" || !value || value === "." || value === ".." || /[\\/\x00-\x1f]/.test(value)) throw failure("error.invalidComponent", `Invalid ${label}`, {label});
@@ -86,6 +112,12 @@ const ui = {
     alert: (message, title) => prompt("alert", message, title),
     confirm: (message, title) => prompt("confirm", message, title),
 };
+// Update providers run in the background and must not open a modal over a
+// game launch. Keep their messages in the log instead.
+const updateCheckUI = {
+    alert: async message => { event("log", { message: String(message || "") }); return true; },
+    confirm: async message => { event("log", { message: String(message || "") }); return false; },
+};
 function progress() {
     return Object.fromEntries(["onStepTotal", "onStep", "onDownloadStart", "onDownloadProgress", "onDownloadEnd"].map(name => [name, value => event("progress", { name, detail: value,
         key: ["listing", "extracting", "done", "prepare", "preserve", "update", "restore", "cleanup", "finalize"].includes(value?.phase)
@@ -106,12 +138,23 @@ async function extractArchive(archive, destination, { signal } = {}) {
     await runFile("/usr/bin/tar", ["-xf", archive, "--no-same-owner", "-C", destination], { signal, maxBuffer: 8 * 1024 * 1024 });
 }
 const createCore = require(process.env.XENO_CORE_PATH || path.join(__dirname, "upstream/module.js"));
-const core = createCore({ getUi: () => ui, getGames: () => games, getAppSupportDir: () => dataDir, extractArchive });
+const integrity = require("./integrity.cjs");
+const core = createCore({ getUi: () => context.getStore()?.method === "checkEngineUpdates" ? updateCheckUI : ui,
+    getGames: () => games, getAppSupportDir: () => dataDir, extractArchive,
+    installedScope: (root, scope, source) => {
+        const store = context.getStore();
+        if (store?.downloadedScopes && root === modulePath(store.moduleFolder)) {
+            integrity.relative(scope);
+            store.downloadedScopes.set(scope, source);
+        }
+    },
+});
 let engineUpdateReport = null;
 
 async function checkEngineUpdates(params, requestSignal) {
     event("progress", { key: "updates.checking", detail: {} });
     const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(60000)]);
+    context.getStore().networkSignal = signal;
     const forceRefresh = params.forceRefresh !== false;
     const local = core.readLocalManifests();
     const folders = Object.keys(local);
@@ -151,21 +194,143 @@ async function checkEngineUpdates(params, requestSignal) {
     return engineUpdateReport;
 }
 
+function multiVersionRoots(root, manifest) {
+    const result = [];
+    for (const [key, def] of Object.entries(manifest.gameArgs || {})) {
+        if (def.type !== "multi-version") continue;
+        component(key);
+        const parent = path.join(root, "deps", key);
+        if (!fs.existsSync(parent)) continue;
+        if (fs.lstatSync(parent).isSymbolicLink()) throw new Error("Linked runtime directories are not supported");
+        for (const child of fs.readdirSync(parent, { withFileTypes: true })) {
+            if ((child.isDirectory() || child.isSymbolicLink()) && !child.name.startsWith(".")) {
+                result.push({ key, version: child.name, scope: `deps/${key}/${child.name}` });
+            }
+        }
+    }
+    return result;
+}
+function manifestDependencies(manifest) {
+    for (const key of ["dependencies", "deps", "dependency", "requires", "requirements"]) {
+        if (manifest[key] && typeof manifest[key] === "object") return manifest[key];
+    }
+    return {};
+}
+async function checkEngineIntegrity(folder, signal) {
+    const root = modulePath(folder);
+    if (!fs.existsSync(root)) throw failure("error.moduleMissing", "Engine is not installed", { module: folder });
+    event("progress", { key: "integrity.checking", arguments: { module: folder }, detail: {} });
+    let manifest;
+    try { manifest = readJSON(path.join(root, "manifest.json")); } catch { manifest = {}; }
+    const receipt = integrity.read(root);
+    const unverified = [];
+    let latest, remoteError = "";
+    try { latest = await core.fetchRemoteManifest(folder, core.DEFAULT_REPO, { signal, strict: true }); }
+    catch (error) { abortCheck(signal); remoteError = error.message; }
+    // Legacy modules are checked against a freshly downloaded reference, never
+    // against a hash computed from the potentially damaged local installation.
+    if (!receipt.scopes["."]) {
+        if (latest && latest.version === manifest.version) {
+            const reference = fs.mkdtempSync(path.join(dataDir, ".integrity-check-"));
+            try {
+                await core.downloadDirectoryWithProgress(`modules/${component(folder)}`, reference, core.DEFAULT_REPO, progress(), { signal });
+                const referenceManifest = readJSON(path.join(reference, "manifest.json"));
+                if (referenceManifest.version !== latest.version || !fs.existsSync(path.join(reference, "launcher.js"))) throw new Error("Engine source changed during verification; try again");
+                receipt.scopes["."] = await integrity.capture(reference, ".", {}, signal);
+            } finally { fs.rmSync(reference, { recursive: true, force: true }); }
+        } else unverified.push(".");
+    }
+    const schema = latest?.version === manifest.version ? latest.raw : receipt.scopes["."]?.source?.manifest || manifest;
+    const expected = new Set(Object.keys(manifestDependencies(schema)).map(key => `deps/${key}`));
+    for (const item of multiVersionRoots(root, schema)) expected.add(item.scope);
+    const missing = [];
+    for (const scope of expected) {
+        try {
+            const target = integrity.safePath(root, scope);
+            if (!fs.existsSync(target)) missing.push({ path: scope, reason: "missing" });
+            else if (!receipt.scopes[scope]) unverified.push(scope);
+        } catch (error) { missing.push({ path: scope, reason: "unreadable" }); }
+    }
+    const checked = await integrity.check(root, receipt, signal, count => event("progress", {
+        key: "integrity.progress", arguments: { count: String(count) }, detail: {},
+    }));
+    checked.issues.push(...missing);
+    if (!manifest.version) checked.issues.push({ path: "manifest.json", reason: "changed" });
+    checked.issues = [...new Map(checked.issues.map(issue => [issue.path + ":" + issue.reason, issue])).values()];
+    if (receipt.invalid) unverified.push(integrity.RECEIPT);
+    return {
+        folder, checkedAt: new Date().toISOString(), ...checked, unverified: [...new Set(unverified)],
+        status: checked.issues.length ? "damaged" : unverified.length ? "unverified" : "healthy",
+        localVersion: manifest.version || "N/A", remoteVersion: latest?.version || "N/A", remoteError,
+        referenceManifest: latest?.raw,
+        moduleUpdate: !!latest && core.hasUpdate(manifest.version, latest.version),
+    };
+}
 async function runModuleTask(folder, action, signal) {
-    modulePath(folder);
+    const root = modulePath(folder);
+    const store = context.getStore();
     const p = progress();
+    const oldReceipt = integrity.read(root);
+    let oldManifest = {};
+    try { oldManifest = readJSON(path.join(root, "manifest.json")); } catch {}
+    const invalidManifest = !oldManifest.version;
+    oldManifest = oldReceipt.scopes["."]?.source?.manifest || oldManifest;
+    store.moduleFolder = folder;
+    store.downloadedScopes = new Map();
+    const report = action === "repair" ? await checkEngineIntegrity(folder, signal) : null;
+    if (!oldManifest.version && report?.referenceManifest) oldManifest = report.referenceManifest;
+    const preserved = ["update", "repair"].includes(action) ? multiVersionRoots(root, oldManifest) : [];
+    const dependencyOverrides = {};
+    if (action === "repair" && report.remoteVersion === oldManifest.version) {
+        for (const [scope, record] of Object.entries(oldReceipt.scopes)) {
+            if (scope.startsWith("deps/") && record.source?.link && !preserved.some(item => item.scope === scope)) {
+                dependencyOverrides[scope.slice(5)] = { universal: record.source };
+            }
+        }
+    }
     await moduleTransaction(folder, async () => {
+        if ((invalidManifest || oldReceipt.scopes["."]?.source?.manifest) && oldManifest.version && ["update", "repair"].includes(action)) {
+            fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify(oldManifest));
+        }
         switch (action) {
             case "install": await core.installModuleWithProgress(folder, core.DEFAULT_REPO, p, { signal }); break;
-            case "update": await core.updateModulePreservingMultiversionsWithProgress(folder, p, { signal, strict: true }); break;
+            case "update":
+            case "repair": await core.updateModulePreservingMultiversionsWithProgress(folder, p, { signal, strict: true, dependencyOverrides }); break;
             case "dependencies": await core.updateDependenciesTaskWithProgress(folder, p, { signal, strict: true }); break;
             case "uninstall": core.uninstallModule(folder); break;
             default: throw failure("error.moduleAction", "Unknown module action");
         }
         abortCheck(signal);
+        if (action === "uninstall") return;
+        // Restored multi-version directories keep their old reference. Never
+        // replace that reference with a hash of the restored local files.
+        const receipt = integrity.read(root);
+        for (const item of preserved) {
+            store.downloadedScopes.delete(item.scope);
+            if (fs.existsSync(path.join(root, item.scope)) && oldReceipt.scopes[item.scope]) {
+                receipt.scopes[item.scope] = oldReceipt.scopes[item.scope];
+            } else delete receipt.scopes[item.scope];
+        }
+        if (action === "repair") {
+            const current = readJSON(path.join(root, "manifest.json"));
+            for (const item of preserved) {
+                if (current.gameArgs?.[item.key]?.type !== "multi-version") continue;
+                const needsRepair = report.unverified.includes(item.scope) || report.issues.some(issue => issue.path === item.scope || issue.path.startsWith(item.scope + "/"));
+                if (needsRepair) await installVersion(folder, item.key, item.version, signal, true, oldReceipt.scopes[item.scope]?.source);
+            }
+        }
+        // Permission fixes in upstream are asynchronous. Finish them before
+        // recording the reference so a later chmod cannot invalidate it.
+        const deps = path.join(root, "deps");
+        if (store.downloadedScopes.size && fs.existsSync(deps)) await runFile("/bin/chmod", ["-R", "700", deps], { signal });
+        for (const [scope, source] of store.downloadedScopes) {
+            event("progress", { key: "integrity.recording", detail: {} });
+            receipt.scopes[scope] = await integrity.capture(root, scope, source, signal);
+        }
+        if (Object.keys(receipt.scopes).length) integrity.write(root, receipt);
+        abortCheck(signal);
     });
     core.invalidateDepUpdatesCache();
-    // Remove stale badges after successful writes; the client rechecks next.
     if (engineUpdateReport) engineUpdateReport.updates = engineUpdateReport.updates.filter(item => item.id !== folder);
 }
 
@@ -174,7 +339,7 @@ function snapshot() {
     const appearance = ["light", "dark", "system"].includes(savedSettings.appearance)
         ? savedSettings.appearance
         : typeof savedSettings.darkTheme === "boolean" ? (savedSettings.darkTheme ? "dark" : "light") : "system";
-    const settings = { listView: false, deletionConfirmation: true, nonInstalledAutodetect: true, checkModuleUpdatesOnStartup: true, ...savedSettings, appearance, language: validLanguage(savedSettings.language) ? savedSettings.language : "system" };
+    const settings = { listView: false, deletionConfirmation: true, nonInstalledAutodetect: true, checkModuleUpdatesOnStartup: true, ...savedSettings, networkProxy: savedSettings.networkProxy ?? { mode: "system", url: "" }, appearance, language: validLanguage(savedSettings.language) ? savedSettings.language : "system" };
     const manifests = core.readLocalManifests();
     return {
         games: Object.entries(games.loadGames()).map(([id, value]) => ({ ...value, id })),
@@ -205,7 +370,7 @@ async function moduleTransaction(folder, operation) {
     let removeBackup = true;
     if (existed) {
         fs.mkdirSync(path.dirname(backup), { recursive: true });
-        fs.cpSync(target, backup, { recursive: true });
+        fs.cpSync(target, backup, { recursive: true, verbatimSymlinks: true });
     }
     try {
         await operation();
@@ -214,7 +379,7 @@ async function moduleTransaction(folder, operation) {
         // complete original module, including all installed engine versions.
         fs.rmSync(target, { recursive: true, force: true });
         if (existed) {
-            try { fs.cpSync(backup, target, { recursive: true }); }
+            try { fs.cpSync(backup, target, { recursive: true, verbatimSymlinks: true }); }
             catch (restoreError) {
                 removeBackup = false;
                 throw failure("error.restoreFailed", `${error.message}. Automatic restore failed: ${restoreError.message}. Original module retained at ${backup}`, {reason: error.message, restore: restoreError.message, backup});
@@ -245,41 +410,40 @@ function installedVersions(folder, argKey) {
     const root = path.join(modulePath(folder), "deps", component(argKey));
     return fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith(".")).map(d => d.name) : [];
 }
-async function installVersion(folder, argKey, version, signal) {
+async function installVersion(folder, argKey, version, signal, replace = false, recordedSpec = null) {
     component(version, "version");
-    const { available } = await versions(folder, argKey);
+    const { available } = recordedSpec?.link ? { available: {} } : await versions(folder, argKey);
     const builds = available[version];
     const arch = os.arch() === "x64" ? "x86_64" : os.arch();
-    const spec = builds?.universal || builds?.[arch];
+    const spec = recordedSpec?.link ? recordedSpec : builds?.universal || builds?.[arch];
     if (!spec?.link) throw failure("error.buildMissing", `No ${arch} build for this version`, {arch});
     const root = path.join(modulePath(folder), "deps", component(argKey));
     const destination = path.join(root, version);
-    if (fs.existsSync(destination)) throw failure("error.alreadyInstalled", "This version is already installed", {});
+    if (!replace && fs.existsSync(destination)) throw failure("error.alreadyInstalled", "This version is already installed", {});
     fs.mkdirSync(root, { recursive: true });
     const staging = fs.mkdtempSync(path.join(root, ".install-"));
     try {
-        const response = await fetch(spec.link, { signal });
-        if (!response.ok || !response.body) throw failure("error.download", `Download failed: HTTP ${response.status}`, {status: response.status});
         const name = component(path.basename(new URL(spec.link).pathname), "archive");
         const archive = path.join(staging, name);
-        const totalBytes = Number(response.headers.get("content-length")) || 0;
-        const file = fs.openSync(archive, "wx");
-        let downloadedBytes = 0;
-        try {
-            for await (const chunk of response.body) {
-                abortCheck(signal);
-                fs.writeSync(file, chunk);
-                downloadedBytes += chunk.length;
-                event("progress", { name: "onDownloadProgress", key: "progress.download", detail: { label: version, downloadedBytes, totalBytes } });
-            }
-        } finally { fs.closeSync(file); }
+        await core.downloadUrlToFileWithProgress(spec.link, archive, progress(), version, { signal, sha256: spec.sha256 });
         if (spec.unzip) {
             const extracted = path.join(staging, "contents");
             await extractArchive(archive, extracted, { signal });
+            if (replace) fs.rmSync(destination, { recursive: true, force: true });
             fs.renameSync(extracted, destination);
         } else {
+            if (replace) fs.rmSync(destination, { recursive: true, force: true });
             fs.mkdirSync(destination);
             fs.renameSync(archive, path.join(destination, name));
+        }
+        const scope = `deps/${argKey}/${version}`;
+        const pending = context.getStore()?.downloadedScopes;
+        if (pending) pending.set(scope, spec);
+        else {
+            const moduleRoot = modulePath(folder);
+            const receipt = integrity.read(moduleRoot);
+            receipt.scopes[scope] = await integrity.capture(moduleRoot, scope, spec, signal);
+            integrity.write(moduleRoot, receipt);
         }
     } finally { fs.rmSync(staging, { recursive: true, force: true }); }
     return { installed: fs.readdirSync(root).filter(v => !v.startsWith(".")), available };
@@ -302,7 +466,12 @@ async function dispatch(method, params, signal) {
             if (Object.hasOwn(params, "language") && !validLanguage(params.language)) {
                 throw failure("error.language", "Invalid language preference");
             }
+            if (Object.hasOwn(params, "networkProxy")) next.networkProxy = proxySettings(params.networkProxy);
             writeJSON(settingsFile, next);
+            if (Object.hasOwn(params, "networkProxy")) {
+                engineUpdateReport = null;
+                core.invalidateDepUpdatesCache();
+            }
             return snapshot();
         }
         case "deleteGame": {
@@ -357,28 +526,50 @@ async function dispatch(method, params, signal) {
             await runModuleTask(folder, action, signal);
             return snapshot();
         }
+        case "checkEngineIntegrity": return await checkEngineIntegrity(params.folder, signal);
+        case "repairEngine": {
+            await runModuleTask(params.folder, "repair", signal);
+            return snapshot();
+        }
         case "installedVersions": return installedVersions(params.folder, params.argKey);
         case "versions": return await versions(params.folder, params.argKey);
-        case "installVersion": return await installVersion(params.folder, params.argKey, params.version, signal);
+        case "installVersion": {
+            let result;
+            await moduleTransaction(params.folder, async () => { result = await installVersion(params.folder, params.argKey, params.version, signal); });
+            return result;
+        }
         case "removeVersion": {
             const root = modulePath(params.folder);
             const def = readJSON(path.join(root, "manifest.json")).gameArgs?.[component(params.argKey)];
             if (def?.type !== "multi-version") throw failure("error.notMultiVersion", "Not a multi-version parameter", {});
             fs.rmSync(path.join(root, "deps", component(params.argKey), component(params.version)), { recursive: true, force: true });
+            const receipt = integrity.read(root);
+            delete receipt.scopes[`deps/${params.argKey}/${params.version}`];
+            integrity.write(root, receipt);
             return { installed: installedVersions(params.folder, params.argKey) };
         }
         default: throw failure("error.unknownMethod", `Unknown method: ${method}`, {method});
     }
 }
-// Serialize operations so two windows cannot race writes or module updates.
-// Dialog replies and cancellation bypass the queue to avoid deadlocks.
+// Foreground operations stay serialized. Checks start in queue order, then
+// release the queue while waiting for the network so a launch can run at once.
+// Engine writes preempt checks and wait for them to settle before changing any
+// files, avoiding stale reports and races with dependency providers/caches.
 let queue = Promise.resolve();
+const backgroundChecks = new Map();
+const engineWrites = new Set(["moduleTask", "updateAllEngines", "installVersion", "removeVersion", "deleteGame", "checkEngineIntegrity", "repairEngine"]);
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 input.on("line", line => {
     let request;
     try { request = JSON.parse(line); } catch { return; }
     if (request.method === "dialogReply") {
         dialogs.get(request.params?.dialogID)?.finish(request.params?.accepted === true);
+        return;
+    }
+    if (request.method === "systemProxyReply") {
+        const params = request.params || {};
+        proxyResolvers.get(params.resolverID)?.(params.routes,
+            params.failed ? failure("error.systemProxy", "Could not resolve the macOS system proxy.") : null);
         return;
     }
     if (request.method === "cancel") {
@@ -388,9 +579,10 @@ input.on("line", line => {
     if (typeof request.id !== "string" || typeof request.method !== "string") return;
     const controller = new AbortController();
     requests.set(request.id, controller);
-    queue = queue.then(() => context.run({ id: request.id, signal: controller.signal }, async () => {
+    const run = () => context.run({ id: request.id, method: request.method, signal: controller.signal }, async () => {
         try {
             abortCheck(controller.signal);
+            context.getStore().networkProxy = readJSON(settingsFile).networkProxy ?? { mode: "system", url: "" };
             const result = await dispatch(request.method, request.params || {}, controller.signal);
             send({ id: request.id, result });
         } catch (error) {
@@ -400,11 +592,27 @@ input.on("line", line => {
                 arguments: error.translationArguments,
             } });
         } finally { requests.delete(request.id); }
-    }));
+    });
+    queue = queue.then(async () => {
+        if (request.method === "checkEngineUpdates") {
+            const completion = run().finally(() => backgroundChecks.delete(request.id));
+            backgroundChecks.set(request.id, { controller, completion });
+        } else {
+            if (engineWrites.has(request.method) || (request.method === "saveSettings" && Object.hasOwn(request.params || {}, "networkProxy"))) {
+                const checks = [...backgroundChecks.values()];
+                for (const check of checks) check.controller.abort();
+                await Promise.all(checks.map(check => check.completion));
+            }
+            await run();
+        }
+    });
 });
 input.on("close", () => {
     for (const controller of requests.values()) controller.abort();
     for (const dialog of dialogs.values()) dialog.finish(false, new Error("Launcher disconnected"));
-    queue.finally(() => process.exit(0));
+    queue.finally(async () => {
+        await Promise.all([...backgroundChecks.values()].map(check => check.completion));
+        process.exit(0);
+    });
 });
 send({ event: "ready", protocol: 1, nodeVersion: process.version });

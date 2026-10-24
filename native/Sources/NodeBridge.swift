@@ -1,9 +1,11 @@
 import AppKit
 import Combine
 import Foundation
+import Darwin
 
 struct LauncherError: LocalizedError {
     let message: String
+    var key: String? = nil
     var errorDescription: String? { message }
 }
 
@@ -85,7 +87,7 @@ final class NodeBridge: ObservableObject {
     }
 
     func call(_ method: String, _ params: [String: JSONValue] = [:], tracked: Bool = false) async throws -> JSONValue {
-        guard let process, process.isRunning else { throw LauncherError(message: localization.text("bridge.notConnected")) }
+        guard !stopped, let process, process.isRunning else { throw LauncherError(message: localization.text("bridge.notConnected")) }
         let id = UUID().uuidString
         if tracked { activeRequestID = id; fraction = nil; progressMessage = "bridge.preparing"; progressLabel = "" }
         defer { if activeRequestID == id { activeRequestID = nil } }
@@ -109,6 +111,7 @@ final class NodeBridge: ObservableObject {
         try input.write(contentsOf: data)
     }
     private func receive(_ data: Data) {
+        guard !stopped else { return }
         buffer.append(data)
         while let newline = buffer.firstIndex(of: 0x0a) {
             let line = buffer[..<newline]
@@ -121,15 +124,31 @@ final class NodeBridge: ObservableObject {
                     let key = error["key"].stringValue
                     let arguments = error["arguments"].objectValue.mapValues(\.stringValue)
                     continuation.resume(throwing: LauncherError(message: key.isEmpty
-                        ? error["message"].stringValue : localization.text(key, arguments)))
+                        ? error["message"].stringValue : localization.text(key, arguments), key: key))
                 } else { continuation.resume(returning: message["result"]) }
                 continue
             }
             switch message["event"].stringValue {
             case "ready": connected = true; nodeVersion = message["nodeVersion"].stringValue
+            case "resolveSystemProxy":
+                let resolverID = message["resolverID"]
+                Task { [weak self] in
+                    var reply: [String: JSONValue] = ["resolverID": resolverID]
+                    do {
+                        guard let url = URL(string: message["url"].stringValue),
+                              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+                            throw SystemProxyResolver.ProxyError.invalid
+                        }
+                        reply["routes"] = .array(try await SystemProxyResolver.resolve(url).map(JSONValue.string))
+                    } catch { reply["failed"] = .bool(true) }
+                    try? self?.send(.object(["method": .string("systemProxyReply"), "params": .object(reply)]))
+                }
             case "log": appendLog(message["message"].stringValue)
             case "dialog": dialogQueue.append(message); presentNextDialog()
             case "progress":
+                // Background checks have their own UI state. Only the tracked
+                // foreground request may change its progress or cancel target.
+                guard let activeRequestID, message["requestID"].stringValue == activeRequestID else { continue }
                 let detail = message["detail"]
                 if !message["key"].stringValue.isEmpty {
                     progressMessage = LocalizedMessage(message["key"].stringValue, message["arguments"].objectValue.mapValues(\.stringValue))
@@ -151,7 +170,7 @@ final class NodeBridge: ObservableObject {
         if logs.count > 400 { logs.removeFirst(logs.count - 400) }
     }
     private func presentNextDialog() {
-        guard !presentingDialog, !dialogQueue.isEmpty else { return }
+        guard !stopped, !presentingDialog, !dialogQueue.isEmpty else { return }
         let message = dialogQueue.removeFirst()
         presentingDialog = true
         let alert = NSAlert()
@@ -188,5 +207,32 @@ final class NodeBridge: ObservableObject {
         output?.readabilityHandler = nil
         errors?.readabilityHandler = nil
         connected = false
+    }
+
+    /// EOF lets the worker abort requests and restore an interrupted module
+    /// transaction before exiting. Keep AppKit alive until the helper is gone.
+    func shutdown() async {
+        stopped = true
+        connected = false
+        dialogQueue.removeAll()
+        try? input?.close()
+        input = nil
+        guard let task = process else { return }
+        if await waitForExit(task, timeout: 5) { return }
+        if task.isRunning { task.terminate() }
+        if await waitForExit(task, timeout: 1) { return }
+        // Signal only our own helper; launched games have their own lifetime.
+        if task.isRunning { Darwin.kill(task.processIdentifier, SIGKILL) }
+        while task.isRunning {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    private func waitForExit(_ task: Process, timeout: TimeInterval) async -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while task.isRunning && ProcessInfo.processInfo.systemUptime < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return !task.isRunning
     }
 }
